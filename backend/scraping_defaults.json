@@ -1,15 +1,16 @@
 {
   "companies": [
-    "pfizer"
+    "tiktok"
   ],
   "search_terms": [
     "all",
     "analyst",
     "manager"
   ],
-  "updated_at": "2025-09-11T10:41:53.386599",
+  "updated_at": "2025-09-11T11:51:44.811975",
   "locations": [
     "USA"
   ],
-  "hours_old": 72
+  "hours_old": 336,
+  "results_per_company": 1000
 }
