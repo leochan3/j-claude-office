@@ -10,7 +10,7 @@ import schedule
 import time
 import threading
 from datetime import datetime, timezone, timedelta
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 import os
 import logging
 import json
@@ -198,6 +198,167 @@ class AutoScrapingScheduler:
         # Fallback to environment variable or default
         return self.max_results_per_company
     
+    def _get_scoring_config(self) -> dict:
+        """Get scoring configuration from scraping defaults file."""
+        try:
+            defaults_file = "scraping_defaults.json"
+            if os.path.exists(defaults_file):
+                with open(defaults_file, 'r') as f:
+                    data = json.load(f)
+                    return {
+                        'scoring_keyword': data.get('scoring_keyword', ''),
+                        'expected_salary': data.get('expected_salary', 0)
+                    }
+        except Exception as e:
+            logger.error(f"Error loading scoring config: {e}")
+        
+        return {'scoring_keyword': '', 'expected_salary': 0}
+    
+    def calculate_relevance_score(self, job: Dict[str, Any], search_term: str, expected_salary: int = None) -> int:
+        """Calculate job relevance score using the same logic as the main app."""
+        score = 0
+        if not search_term or not search_term.strip():
+            return 0
+        
+        # Get job details
+        title = (job.get('title', '') or '').lower().strip()
+        description = (job.get('description', '') or '').lower().strip()
+        company = (job.get('company', '') or '').lower().strip()
+        search = search_term.lower().strip()
+        
+        # Split search term into words, filter out common stop words
+        stop_words = {'and', 'or', 'the', 'a', 'an', 'in', 'at', 'for', 'with', 'by', 'to', 'of', 'from'}
+        search_words = [word for word in search.split() if len(word) > 1 and word not in stop_words]
+        
+        if not search_words:
+            return 0
+        
+        # 1. Exact title match (highest score)
+        if title == search:
+            score += 100
+        
+        # 2. Title contains full search phrase
+        if search in title:
+            score += 80
+        
+        # 3. All search words in title (high score)
+        title_words = title.split()
+        title_words_matched = [sw for sw in search_words if any(sw in tw or tw in sw for tw in title_words)]
+        
+        if len(title_words_matched) == len(search_words):
+            score += 60  # All words found
+        elif title_words_matched:
+            score += (len(title_words_matched) / len(search_words)) * 40  # Partial match
+        
+        # 4. Individual word matches in title (position matters)
+        for search_word in search_words:
+            for title_index, title_word in enumerate(title_words):
+                if search_word in title_word:
+                    # Earlier position in title = higher score
+                    position_bonus = max(0, 10 - title_index * 2)
+                    score += 15 + position_bonus
+                elif title_word in search_word and len(title_word) > 2:
+                    score += 8  # Partial word match
+        
+        # 5. Description matches (lower weight)
+        if description:
+            for search_word in search_words:
+                matches = description.count(search_word)
+                if matches:
+                    score += min(matches * 5, 20)  # Cap at 20 points per word
+            
+            # Bonus for search phrase in description
+            if search in description:
+                score += 15
+        
+        # 6. Company name relevance (small bonus)
+        if company:
+            for search_word in search_words:
+                if search_word in company:
+                    score += 5
+        
+        # 7. Job type matching bonus
+        job_type = (job.get('job_type', '') or '').lower()
+        if job_type and (search in job_type or ('full' in job_type and 'full' in search)):
+            score += 8
+        
+        # 8. Salary matching with rewards and penalties
+        if expected_salary and expected_salary > 0:
+            min_salary = job.get('min_amount')
+            max_salary = job.get('max_amount')
+            
+            if min_salary and max_salary:
+                # Calculate median salary for the job
+                median_job_salary = (min_salary + max_salary) / 2
+                salary_diff = abs(expected_salary - median_job_salary)
+                percentage_diff = salary_diff / expected_salary
+                
+                # Salary scoring with rewards and penalties
+                if percentage_diff <= 0.15:
+                    salary_score = 30  # Within 15% - excellent match
+                elif percentage_diff <= 0.25:
+                    salary_score = 25  # Within 25% - very good match
+                elif percentage_diff <= 0.40:
+                    salary_score = 10  # Within 40% - acceptable match
+                elif percentage_diff <= 0.60:
+                    salary_score = -15  # 40-60% - penalty for poor match
+                elif percentage_diff <= 0.80:
+                    salary_score = -30  # 60-80% - bigger penalty
+                else:
+                    salary_score = -50  # Above 80% - major penalty
+                
+                score += salary_score
+                
+            elif min_salary or max_salary:
+                # Only one salary bound available
+                available_salary = min_salary or max_salary
+                salary_diff = abs(expected_salary - available_salary)
+                percentage_diff = salary_diff / expected_salary
+                
+                # Same scoring logic for partial data
+                if percentage_diff <= 0.15:
+                    salary_score = 30
+                elif percentage_diff <= 0.25:
+                    salary_score = 25
+                elif percentage_diff <= 0.40:
+                    salary_score = 10
+                elif percentage_diff <= 0.60:
+                    salary_score = -15
+                elif percentage_diff <= 0.80:
+                    salary_score = -30
+                else:
+                    salary_score = -50
+                
+                score += salary_score
+            else:
+                # No salary data - give small bonus as neutral reward
+                score += 10
+        
+        # 9. Recency bonus (newer posts get higher ranking)
+        if job.get('date_posted'):
+            try:
+                from datetime import datetime
+                post_date = datetime.fromisoformat(str(job['date_posted']).replace('Z', '+00:00'))
+                now = datetime.now(post_date.tzinfo)
+                days_since_posted = (now - post_date).days
+                
+                # Recency bonus: max 15 points for posts within last week, declining over time
+                if days_since_posted <= 1:
+                    score += 15  # Posted within last day
+                elif days_since_posted <= 3:
+                    score += 12  # Posted within last 3 days
+                elif days_since_posted <= 7:
+                    score += 8   # Posted within last week
+                elif days_since_posted <= 14:
+                    score += 5   # Posted within last 2 weeks
+                elif days_since_posted <= 30:
+                    score += 2   # Posted within last month
+            except:
+                # Invalid date, skip recency bonus
+                pass
+        
+        return round(score)
+    
     def _get_default_search_terms(self) -> List[str]:
         """Get default search terms from scraping defaults file."""
         try:
@@ -230,19 +391,50 @@ class AutoScrapingScheduler:
                     logger.warning("No jobs found for CSV export")
                     return None
                 
+                # Get scoring configuration
+                scoring_config = self._get_scoring_config()
+                scoring_keyword = scoring_config.get('scoring_keyword', '')
+                expected_salary = scoring_config.get('expected_salary', 0)
+                
+                if scoring_keyword:
+                    logger.info(f"📊 Applying relevance scoring with keyword: '{scoring_keyword}', expected salary: ${expected_salary:,}")
+                else:
+                    logger.info("📊 No scoring keyword configured - all jobs will have score 0")
+                
                 # Create CSV content
                 output = io.StringIO()
                 writer = csv.writer(output)
                 
-                # Write header
+                # Write header with Relevance_Score column
                 writer.writerow([
                     'Company', 'Title', 'Location', 'Description', 'Salary_Min', 'Salary_Max', 
                     'Salary_Interval', 'Currency', 'Date_Posted', 'Date_Scraped', 'Job_URL', 
-                    'Site', 'Job_Type', 'Is_Remote', 'Min_Experience_Years', 'Max_Experience_Years'
+                    'Site', 'Job_Type', 'Is_Remote', 'Min_Experience_Years', 'Max_Experience_Years',
+                    'Relevance_Score'
                 ])
                 
-                # Write job data
+                # Write job data with relevance scores
                 for job in jobs:
+                    # Convert job to dict for scoring function
+                    job_dict = {
+                        'title': job.title,
+                        'description': job.description,
+                        'company': job.company,
+                        'job_type': job.job_type,
+                        'min_amount': job.min_amount,
+                        'max_amount': job.max_amount,
+                        'date_posted': job.date_posted
+                    }
+                    
+                    # Calculate relevance score
+                    relevance_score = 0
+                    if scoring_keyword and scoring_keyword.strip():
+                        relevance_score = self.calculate_relevance_score(
+                            job_dict, 
+                            scoring_keyword, 
+                            expected_salary if expected_salary > 0 else None
+                        )
+                    
                     writer.writerow([
                         job.company or '',
                         job.title or '',
@@ -259,7 +451,8 @@ class AutoScrapingScheduler:
                         job.job_type or '',
                         'Yes' if job.is_remote else 'No',
                         job.min_experience_years or '',
-                        job.max_experience_years or ''
+                        job.max_experience_years or '',
+                        relevance_score
                     ])
                 
                 # Save to temporary file
@@ -269,7 +462,7 @@ class AutoScrapingScheduler:
                 with open(csv_filename, 'w', newline='', encoding='utf-8') as f:
                     f.write(output.getvalue())
                 
-                logger.info(f"📄 Created CSV export: {csv_filename} with {len(jobs)} jobs")
+                logger.info(f"📄 Created CSV export: {csv_filename} with {len(jobs)} jobs and relevance scores")
                 return csv_filename
                 
             finally:
@@ -525,26 +718,28 @@ Generated by JobSpy Automated Scraping System
                 if not companies_to_scrape:
                     logger.warning("❌ No companies available for scraping (creation may have failed)")
                     return
+                
+                # Extract data while session is still active
+                company_names = [company.name for company in companies_to_scrape]
+                
+                # Use custom search terms or company-specific terms
+                search_terms = set()
+                if custom_search_terms:
+                    search_terms.update(custom_search_terms)
+                    logger.info(f"🔍 Using custom search terms: {', '.join(custom_search_terms)}")
+                else:
+                    # Use company-specific search terms or defaults
+                    for company in companies_to_scrape:
+                        if company.search_terms:
+                            search_terms.update(company.search_terms)
+                        else:
+                            search_terms.update(self.default_search_terms)
+                    logger.info(f"🔍 Using default/company-specific search terms")
+                
+                search_terms = list(search_terms)
                     
             finally:
                 db.close()
-            
-            # Use custom search terms or company-specific terms
-            search_terms = set()
-            if custom_search_terms:
-                search_terms.update(custom_search_terms)
-                logger.info(f"🔍 Using custom search terms: {', '.join(custom_search_terms)}")
-            else:
-                # Use company-specific search terms or defaults
-                for company in companies_to_scrape:
-                    if company.search_terms:
-                        search_terms.update(company.search_terms)
-                    else:
-                        search_terms.update(self.default_search_terms)
-                logger.info(f"🔍 Using default/company-specific search terms")
-            
-            search_terms = list(search_terms)
-            company_names = [company.name for company in companies_to_scrape]
             
             logger.info(f"🚀 Will scrape {len(company_names)} companies with {len(search_terms)} search terms")
             logger.info(f"📝 Search terms: {', '.join(search_terms[:5])}{'...' if len(search_terms) > 5 else ''}")

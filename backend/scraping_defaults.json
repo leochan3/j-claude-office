@@ -1,12 +1,15 @@
 {
   "companies": [
-    "Microsoft"
+    "visa",
+    "mastercard"
   ],
   "search_terms": [
-    "analyst",
+    "all",
     "manager"
   ],
-  "updated_at": "2025-09-11T14:44:47.479325",
+  "scoring_keyword": "product manager",
+  "expected_salary": 120000,
+  "updated_at": "2025-09-11T15:18:36.085249",
   "locations": [
     "USA"
   ],
