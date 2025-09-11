@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install:*)",
+      "Bash(python:*)",
+      "Bash(sqlite3:*)",
+      "Bash(curl:*)",
+      "Bash(lsof:*)",
+      "Bash(open:*)",
+      "Bash(git add:*)",
+      "Bash(rm:*)",
+      "Bash(wc:*)",
+      "Bash(find:*)",
+      "Bash(cat:*)",
+      "Bash(ls:*)",
+      "Bash(pkill:*)",
+      "Bash(true)",
+      "Bash(kill:*)",
+      "Bash(echo)",
+      "Bash(timeout:*)",
+      "Bash(node:*)",
+      "Bash(chmod:*)",
+      "Bash(./scrape_healthcare.sh:*)",
+      "WebFetch(domain:localhost)",
+      "Bash(dir)"
+    ],
+    "deny": [],
+    "defaultMode": "acceptEdits"
+  }
+}

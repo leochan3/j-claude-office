@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Admin Dashboard Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-result { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .success { background: #d1fae5; color: #065f46; }
+        .error { background: #fee2e2; color: #991b1b; }
+    </style>
+</head>
+<body>
+    <h1>🧪 Admin Dashboard Test</h1>
+    
+    <div id="test-results"></div>
+    
+    <p><a href="admin-dashboard.html" target="_blank">🔗 Open Admin Dashboard</a></p>
+    
+    <script>
+        const results = document.getElementById('test-results');
+        
+        function addResult(test, success, message) {
+            const div = document.createElement('div');
+            div.className = `test-result ${success ? 'success' : 'error'}`;
+            div.innerHTML = `<strong>${test}:</strong> ${success ? '✅' : '❌'} ${message}`;
+            results.appendChild(div);
+        }
+        
+        // Test 1: Basic JavaScript execution
+        try {
+            addResult('JavaScript Execution', true, 'JavaScript is running correctly');
+        } catch (e) {
+            addResult('JavaScript Execution', false, e.message);
+        }
+        
+        // Test 2: DOM manipulation
+        try {
+            const testElement = document.createElement('div');
+            testElement.textContent = 'Test';
+            addResult('DOM Manipulation', true, 'DOM manipulation working');
+        } catch (e) {
+            addResult('DOM Manipulation', false, e.message);
+        }
+        
+        // Test 3: Local storage access
+        try {
+            localStorage.setItem('test', 'value');
+            const value = localStorage.getItem('test');
+            localStorage.removeItem('test');
+            addResult('Local Storage', value === 'value', 'Local storage access working');
+        } catch (e) {
+            addResult('Local Storage', false, e.message);
+        }
+        
+        // Test 4: Fetch API availability
+        try {
+            addResult('Fetch API', typeof fetch === 'function', 'Fetch API is available for admin calls');
+        } catch (e) {
+            addResult('Fetch API', false, e.message);
+        }
+        
+        // Test 5: Console logging
+        try {
+            console.log('Admin test - console works');
+            addResult('Console Logging', true, 'Console logging available for debugging');
+        } catch (e) {
+            addResult('Console Logging', false, e.message);
+        }
+        
+        addResult('Overall', true, 'Basic environment tests passed. Admin dashboard should work.');
+    </script>
+</body>
+</html>

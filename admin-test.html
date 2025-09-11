@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f7fa;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+        }
+        .status {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .error { color: #dc2626; }
+        .success { color: #059669; }
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin: 20px 0;
+        }
+        .tab {
+            padding: 10px 20px;
+            background: #e5e7eb;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+        .tab.active {
+            background: #3b82f6;
+            color: white;
+        }
+        .panel {
+            display: none;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            min-height: 300px;
+        }
+        .panel.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <h1>🛠️ Admin Dashboard Test</h1>
+    
+    <div class="status" id="status">
+        <div id="env-indicator">🔄 Loading...</div>
+    </div>
+    
+    <div class="tabs">
+        <button class="tab active" data-tab="test1">Test 1</button>
+        <button class="tab" data-tab="test2">Auto Scraping</button>
+        <button class="tab" data-tab="test3">Test 3</button>
+    </div>
+    
+    <div id="test1-panel" class="panel active">
+        <h3>Test Panel 1</h3>
+        <p>This is a test to ensure basic functionality works.</p>
+    </div>
+    
+    <div id="test2-panel" class="panel">
+        <h3>🤖 Auto Scraping Test</h3>
+        <p>Testing auto scraping interface...</p>
+        <button onclick="testSchedulerStatus()">Test API Call</button>
+        <div id="api-result"></div>
+    </div>
+    
+    <div id="test3-panel" class="panel">
+        <h3>Test Panel 3</h3>
+        <p>Another test panel.</p>
+    </div>
+
+    <script>
+        console.log('🔄 Starting admin test...');
+        
+        // Test environment detection
+        document.addEventListener('DOMContentLoaded', function() {
+            try {
+                console.log('✅ DOMContentLoaded event fired');
+                
+                // Test environment detection
+                const isProduction = window.location.hostname.includes('render.com') || 
+                                    window.location.hostname.includes('onrender.com');
+                
+                const BASE_URL = isProduction 
+                    ? 'https://j-claude-backup2-1.onrender.com'
+                    : 'http://localhost:8000';
+
+                document.getElementById('env-indicator').innerHTML = `
+                    <div class="success">✅ Environment: ${isProduction ? 'Production' : 'Local'}</div>
+                    <div>Base URL: ${BASE_URL}</div>
+                `;
+                
+                // Test tab switching
+                setupTabs();
+                
+                console.log('✅ Test initialization complete');
+                
+            } catch (error) {
+                console.error('❌ Test initialization failed:', error);
+                document.getElementById('env-indicator').innerHTML = `
+                    <div class="error">❌ Error: ${error.message}</div>
+                `;
+            }
+        });
+        
+        function setupTabs() {
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.addEventListener('click', function() {
+                    const tabName = this.getAttribute('data-tab');
+                    switchTab(tabName);
+                });
+            });
+        }
+        
+        function switchTab(tabName) {
+            try {
+                // Update active tab
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+                
+                // Update active panel
+                document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+                document.getElementById(`${tabName}-panel`).classList.add('active');
+                
+                console.log(`✅ Switched to tab: ${tabName}`);
+            } catch (error) {
+                console.error(`❌ Error switching to tab ${tabName}:`, error);
+            }
+        }
+        
+        async function testSchedulerStatus() {
+            const resultDiv = document.getElementById('api-result');
+            resultDiv.innerHTML = '🔄 Testing API...';
+            
+            try {
+                const response = await fetch('http://localhost:8000/admin/scheduler/status', {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                        // Note: No auth token for this test
+                    }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    resultDiv.innerHTML = `<div class="success">✅ API working! Scheduler status: ${JSON.stringify(data, null, 2)}</div>`;
+                } else {
+                    resultDiv.innerHTML = `<div class="error">❌ API error: ${response.status} ${response.statusText}</div>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="error">❌ Network error: ${error.message}</div>`;
+            }
+        }
+    </script>
+</body>
+</html>
