@@ -205,14 +205,24 @@ class AutoScrapingScheduler:
             if os.path.exists(defaults_file):
                 with open(defaults_file, 'r') as f:
                     data = json.load(f)
-                    return {
-                        'scoring_keyword': data.get('scoring_keyword', ''),
+                    
+                    # Support both single keyword (backward compatibility) and multiple keywords
+                    keywords = []
+                    if 'scoring_keywords' in data and isinstance(data['scoring_keywords'], list):
+                        keywords = [kw.strip() for kw in data['scoring_keywords'] if kw.strip()]
+                    elif 'scoring_keyword' in data and data['scoring_keyword']:
+                        keywords = [data['scoring_keyword'].strip()]
+                    
+                    config = {
+                        'scoring_keywords': keywords,
                         'expected_salary': data.get('expected_salary', 0)
                     }
+                    logger.info(f"🔧 Loaded scoring config: keywords={keywords}, salary={config['expected_salary']}")
+                    return config
         except Exception as e:
             logger.error(f"Error loading scoring config: {e}")
         
-        return {'scoring_keyword': '', 'expected_salary': 0}
+        return {'scoring_keywords': [], 'expected_salary': 0}
     
     def calculate_relevance_score(self, job: Dict[str, Any], search_term: str, expected_salary: int = None) -> int:
         """Calculate job relevance score using the same logic as the main app."""
@@ -359,6 +369,31 @@ class AutoScrapingScheduler:
         
         return round(score)
     
+    def calculate_multi_keyword_score(self, job: Dict[str, Any], keywords: List[str], expected_salary: int = None) -> Dict[str, Any]:
+        """Calculate relevance scores for multiple keywords and return the highest score."""
+        if not keywords:
+            logger.info("🔍 No keywords provided for scoring")
+            return {'score': 0, 'best_keyword': '', 'all_scores': {}}
+        
+        all_scores = {}
+        best_score = 0
+        best_keyword = ''
+        
+        for keyword in keywords:
+            if keyword.strip():
+                score = self.calculate_relevance_score(job, keyword.strip(), expected_salary)
+                all_scores[keyword] = score
+                
+                if score > best_score:
+                    best_score = score
+                    best_keyword = keyword
+        
+        return {
+            'score': best_score,
+            'best_keyword': best_keyword,
+            'all_scores': all_scores
+        }
+    
     def _get_default_search_terms(self) -> List[str]:
         """Get default search terms from scraping defaults file."""
         try:
@@ -393,28 +428,29 @@ class AutoScrapingScheduler:
                 
                 # Get scoring configuration
                 scoring_config = self._get_scoring_config()
-                scoring_keyword = scoring_config.get('scoring_keyword', '')
+                scoring_keywords = scoring_config.get('scoring_keywords', [])
                 expected_salary = scoring_config.get('expected_salary', 0)
                 
-                if scoring_keyword:
-                    logger.info(f"📊 Applying relevance scoring with keyword: '{scoring_keyword}', expected salary: ${expected_salary:,}")
+                if scoring_keywords:
+                    logger.info(f"📊 Applying relevance scoring with keywords: {scoring_keywords}, expected salary: ${expected_salary:,}")
                 else:
-                    logger.info("📊 No scoring keyword configured - all jobs will have score 0")
+                    logger.info("📊 No scoring keywords configured - all jobs will have score 0")
                 
                 # Create CSV content
                 output = io.StringIO()
                 writer = csv.writer(output)
                 
-                # Write header with Relevance_Score column
+                # Write header with Relevance_Score and Best_Keyword columns
                 writer.writerow([
                     'Company', 'Title', 'Location', 'Description', 'Salary_Min', 'Salary_Max', 
                     'Salary_Interval', 'Currency', 'Date_Posted', 'Date_Scraped', 'Job_URL', 
                     'Site', 'Job_Type', 'Is_Remote', 'Min_Experience_Years', 'Max_Experience_Years',
-                    'Relevance_Score'
+                    'Relevance_Score', 'Best_Matching_Keyword'
                 ])
                 
                 # Write job data with relevance scores
-                for job in jobs:
+                jobs_with_scores = 0
+                for job_index, job in enumerate(jobs):
                     # Convert job to dict for scoring function
                     job_dict = {
                         'title': job.title,
@@ -426,14 +462,23 @@ class AutoScrapingScheduler:
                         'date_posted': job.date_posted
                     }
                     
-                    # Calculate relevance score
+                    # Calculate relevance score for multiple keywords
                     relevance_score = 0
-                    if scoring_keyword and scoring_keyword.strip():
-                        relevance_score = self.calculate_relevance_score(
+                    best_keyword = ''
+                    if scoring_keywords:
+                        scoring_result = self.calculate_multi_keyword_score(
                             job_dict, 
-                            scoring_keyword, 
+                            scoring_keywords, 
                             expected_salary if expected_salary > 0 else None
                         )
+                        relevance_score = scoring_result['score']
+                        best_keyword = scoring_result['best_keyword']
+                        
+                        # Log first few scores for debugging
+                        if job_index < 3:
+                            logger.info(f"🔍 Job {job_index+1}: '{job.title}' scored {relevance_score} (best: '{best_keyword}')")
+                        if relevance_score > 0:
+                            jobs_with_scores += 1
                     
                     writer.writerow([
                         job.company or '',
@@ -452,7 +497,8 @@ class AutoScrapingScheduler:
                         'Yes' if job.is_remote else 'No',
                         job.min_experience_years or '',
                         job.max_experience_years or '',
-                        relevance_score
+                        relevance_score,
+                        best_keyword
                     ])
                 
                 # Save to temporary file
@@ -462,7 +508,13 @@ class AutoScrapingScheduler:
                 with open(csv_filename, 'w', newline='', encoding='utf-8') as f:
                     f.write(output.getvalue())
                 
-                logger.info(f"📄 Created CSV export: {csv_filename} with {len(jobs)} jobs and relevance scores")
+                # Log scoring summary if keywords were used
+                if scoring_keywords:
+                    logger.info(f"📄 Created CSV export: {csv_filename} with {len(jobs)} jobs, multi-keyword relevance scores")
+                    logger.info(f"📊 Scoring keywords used: {', '.join(scoring_keywords)}")
+                    logger.info(f"📊 Jobs with scores > 0: {jobs_with_scores} out of {len(jobs)}")
+                else:
+                    logger.info(f"📄 Created CSV export: {csv_filename} with {len(jobs)} jobs (no scoring applied)")
                 return csv_filename
                 
             finally:

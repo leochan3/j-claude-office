@@ -1,15 +1,18 @@
 {
   "companies": [
-    "visa",
-    "mastercard"
+    "visa"
   ],
   "search_terms": [
     "all",
     "manager"
   ],
-  "scoring_keyword": "product manager",
+  "scoring_keywords": [
+    "product manager",
+    "engineer",
+    "software"
+  ],
   "expected_salary": 120000,
-  "updated_at": "2025-09-11T15:18:36.085249",
+  "updated_at": "2025-09-11T16:18:48.238635",
   "locations": [
     "USA"
   ],
