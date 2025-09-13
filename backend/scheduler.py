@@ -27,6 +27,11 @@ from database import SessionLocal, TargetCompany
 from job_scraper import job_scraper
 from models import BulkScrapingRequest
 from daily_job_review import daily_job_reviewer
+from openai import OpenAI
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -57,7 +62,20 @@ class AutoScrapingScheduler:
         self.email_user = os.getenv("EMAIL_USER", "")
         self.email_password = os.getenv("EMAIL_PASSWORD", "")
         self.notification_email = os.getenv("NOTIFICATION_EMAIL", "")
-        
+
+        # OpenAI configuration for AI relevance evaluation
+        self.openai_api_key = os.getenv("OPENAI_API_KEY")
+        self.openai_model = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
+        self.openai_client = None
+        if self.openai_api_key and self.openai_api_key != "your_openai_api_key_here":
+            try:
+                self.openai_client = OpenAI(api_key=self.openai_api_key)
+                logger.info("OpenAI client initialized for AI relevance evaluation")
+            except Exception as e:
+                logger.warning(f"Failed to initialize OpenAI client: {e}")
+        else:
+            logger.info("OpenAI API key not configured - AI relevance evaluation will be skipped")
+
         logger.info(f"AutoScrapingScheduler initialized:")
         logger.info(f"  - Enabled: {self.enabled}")
         logger.info(f"  - Schedule time: {self.schedule_time}")
@@ -409,7 +427,61 @@ class AutoScrapingScheduler:
             logger.error(f"Error loading default search terms: {e}")
         
         return []
-    
+
+    def evaluate_job_relevance_with_ai(self, job_title: str, job_description: str = None) -> str:
+        """
+        Use AI to evaluate job relevance and return one of four levels:
+        'Highly Relevant', 'Somewhat Relevant', 'Somewhat Irrelevant', 'Irrelevant'
+
+        If job_description is empty, use job_title only.
+        """
+        if not self.openai_client:
+            return "AI Not Configured"
+
+        try:
+            # Use description if available, otherwise fall back to title
+            content_to_analyze = job_description.strip() if job_description and job_description.strip() else job_title.strip()
+
+            if not content_to_analyze:
+                return "No Content"
+
+            # Create simplified prompt for GPT-5 Nano
+            job_content = f"Title: {job_title}"
+            if content_to_analyze != job_title:
+                # Truncate description to keep token usage low
+                description_short = content_to_analyze[:300]
+                job_content += f"\nDescription: {description_short}"
+
+            prompt = f"""Evaluate job relevance for product manager/engineer/software roles.
+
+{job_content}
+
+Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant, Irrelevant"""
+
+            response = self.openai_client.chat.completions.create(
+                model=self.openai_model,
+                messages=[
+                    {"role": "system", "content": "You are a job relevance evaluator. Respond with only the exact relevance level."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=15,
+                temperature=0.1
+            )
+
+            relevance = response.choices[0].message.content.strip()
+
+            # Validate response is one of the expected values
+            valid_responses = ["Highly Relevant", "Somewhat Relevant", "Somewhat Irrelevant", "Irrelevant"]
+            if relevance not in valid_responses:
+                logger.warning(f"AI returned unexpected relevance: {relevance}")
+                return "AI Error"
+
+            return relevance
+
+        except Exception as e:
+            logger.error(f"Error in AI job relevance evaluation: {e}")
+            return "AI Error"
+
     def create_jobs_csv(self, scraping_run_id: int) -> str:
         """Create a CSV file with the jobs from the latest scraping run."""
         try:
@@ -440,12 +512,12 @@ class AutoScrapingScheduler:
                 output = io.StringIO()
                 writer = csv.writer(output)
                 
-                # Write header with Relevance_Score and Best_Keyword columns
+                # Write header with Relevance_Score, Best_Keyword, and AI_Relevance columns
                 writer.writerow([
-                    'Company', 'Title', 'Location', 'Description', 'Salary_Min', 'Salary_Max', 
-                    'Salary_Interval', 'Currency', 'Date_Posted', 'Date_Scraped', 'Job_URL', 
+                    'Company', 'Title', 'Location', 'Description', 'Salary_Min', 'Salary_Max',
+                    'Salary_Interval', 'Currency', 'Date_Posted', 'Date_Scraped', 'Job_URL',
                     'Site', 'Job_Type', 'Is_Remote', 'Min_Experience_Years', 'Max_Experience_Years',
-                    'Relevance_Score', 'Best_Matching_Keyword'
+                    'Relevance_Score', 'Best_Matching_Keyword', 'AI_Relevance'
                 ])
                 
                 # Write job data with relevance scores
@@ -479,7 +551,24 @@ class AutoScrapingScheduler:
                             logger.info(f"🔍 Job {job_index+1}: '{job.title}' scored {relevance_score} (best: '{best_keyword}')")
                         if relevance_score > 0:
                             jobs_with_scores += 1
-                    
+
+                    # Get AI relevance evaluation
+                    ai_relevance = "Not Evaluated"
+                    if self.openai_client:
+                        try:
+                            ai_relevance = self.evaluate_job_relevance_with_ai(
+                                job.title or '',
+                                job.description or ''
+                            )
+                            # Log AI evaluation for first few jobs
+                            if job_index < 3:
+                                logger.info(f"🤖 AI evaluation for '{job.title}': {ai_relevance}")
+                        except Exception as e:
+                            logger.warning(f"AI evaluation failed for job {job_index+1}: {e}")
+                            ai_relevance = "AI Error"
+                    else:
+                        ai_relevance = "AI Not Configured"
+
                     writer.writerow([
                         job.company or '',
                         job.title or '',
@@ -498,7 +587,8 @@ class AutoScrapingScheduler:
                         job.min_experience_years or '',
                         job.max_experience_years or '',
                         relevance_score,
-                        best_keyword
+                        best_keyword,
+                        ai_relevance
                     ])
                 
                 # Save to temporary file
@@ -509,12 +599,13 @@ class AutoScrapingScheduler:
                     f.write(output.getvalue())
                 
                 # Log scoring summary if keywords were used
+                ai_status = "with AI relevance evaluation" if self.openai_client else "without AI evaluation (OpenAI not configured)"
                 if scoring_keywords:
-                    logger.info(f"📄 Created CSV export: {csv_filename} with {len(jobs)} jobs, multi-keyword relevance scores")
+                    logger.info(f"📄 Created CSV export: {csv_filename} with {len(jobs)} jobs, multi-keyword relevance scores, {ai_status}")
                     logger.info(f"📊 Scoring keywords used: {', '.join(scoring_keywords)}")
                     logger.info(f"📊 Jobs with scores > 0: {jobs_with_scores} out of {len(jobs)}")
                 else:
-                    logger.info(f"📄 Created CSV export: {csv_filename} with {len(jobs)} jobs (no scoring applied)")
+                    logger.info(f"📄 Created CSV export: {csv_filename} with {len(jobs)} jobs (no keyword scoring applied), {ai_status}")
                 return csv_filename
                 
             finally:

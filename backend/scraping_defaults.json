@@ -1,6 +1,6 @@
 {
   "companies": [
-    "visa"
+    "tiktok"
   ],
   "search_terms": [
     "all",
@@ -12,7 +12,7 @@
     "software"
   ],
   "expected_salary": 120000,
-  "updated_at": "2025-09-11T16:18:48.238635",
+  "updated_at": "2025-09-13T14:59:05.800526",
   "locations": [
     "USA"
   ],
