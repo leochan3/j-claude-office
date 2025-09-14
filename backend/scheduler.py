@@ -482,6 +482,113 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
             logger.error(f"Error in AI job relevance evaluation: {e}")
             return "AI Error"
 
+    def create_filtered_jobs_csv(self, original_csv_path: str) -> str:
+        """
+        Create a filtered and scored CSV based on relevance criteria.
+
+        Filtering rules:
+        1. Remove jobs with Relevance_Score < 60
+        2. Remove jobs where AI_Relevance = "Irrelevant"
+        3. Exclude jobs with "president", "director", "VP" in title
+        4. Boost scores based on AI_Relevance:
+           - "Highly Relevant": +50
+           - "Somewhat Relevant": +25
+           - "Somewhat Irrelevant": +0
+        5. Sort by final score (descending)
+        """
+        try:
+            import pandas as pd
+
+            # Read the original CSV
+            df = pd.read_csv(original_csv_path)
+            logger.info(f"📊 Processing {len(df)} jobs for filtering...")
+
+            # Initial count
+            original_count = len(df)
+
+            # Filter 1: Remove low relevance scores (< 60)
+            df = df[df['Relevance_Score'] >= 60]
+            after_score_filter = len(df)
+            logger.info(f"🔍 After relevance score filter (≥60): {after_score_filter} jobs remaining")
+
+            # Filter 2: Remove "Irrelevant" AI evaluations
+            df = df[df['AI_Relevance'] != 'Irrelevant']
+            after_ai_filter = len(df)
+            logger.info(f"🤖 After AI relevance filter (not Irrelevant): {after_ai_filter} jobs remaining")
+
+            # Filter 3: Exclude executive positions
+            exclusion_keywords = ['president', 'director', 'vp', 'vice president', 'chief', 'head of']
+            title_mask = True
+            for keyword in exclusion_keywords:
+                title_mask = title_mask & (~df['Title'].str.contains(keyword, case=False, na=False))
+
+            df = df[title_mask]
+            after_title_filter = len(df)
+            logger.info(f"🚫 After title exclusion filter: {after_title_filter} jobs remaining")
+
+            if len(df) == 0:
+                logger.warning("⚠️ No jobs remaining after filtering!")
+                return None
+
+            # Create enhanced score based on AI relevance
+            def calculate_enhanced_score(row):
+                base_score = row['Relevance_Score']
+                ai_relevance = row['AI_Relevance']
+
+                if ai_relevance == 'Highly Relevant':
+                    return base_score + 50
+                elif ai_relevance == 'Somewhat Relevant':
+                    return base_score + 25
+                elif ai_relevance == 'Somewhat Irrelevant':
+                    return base_score  # No boost
+                else:
+                    return base_score  # For any unexpected values
+
+            df['Enhanced_Score'] = df.apply(calculate_enhanced_score, axis=1)
+
+            # Sort by enhanced score (descending)
+            df = df.sort_values('Enhanced_Score', ascending=False)
+
+            # Create filtered CSV filename
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filtered_csv_filename = f"jobspy_filtered_jobs_{timestamp}.csv"
+
+            # Reorder columns to show Enhanced_Score prominently
+            columns = ['Enhanced_Score', 'Company', 'Title', 'Location', 'Description',
+                      'Salary_Min', 'Salary_Max', 'Salary_Interval', 'Currency',
+                      'Date_Posted', 'Date_Scraped', 'Job_URL', 'Site', 'Job_Type',
+                      'Is_Remote', 'Min_Experience_Years', 'Max_Experience_Years',
+                      'Relevance_Score', 'Best_Matching_Keyword', 'AI_Relevance']
+
+            # Ensure all columns exist (in case some are missing)
+            available_columns = [col for col in columns if col in df.columns]
+            df_filtered = df[available_columns]
+
+            # Save filtered CSV
+            df_filtered.to_csv(filtered_csv_filename, index=False)
+
+            # Log filtering summary
+            logger.info(f"📋 FILTERING SUMMARY:")
+            logger.info(f"   📥 Original jobs: {original_count}")
+            logger.info(f"   🎯 After relevance score ≥60: {after_score_filter}")
+            logger.info(f"   🤖 After AI relevance filter: {after_ai_filter}")
+            logger.info(f"   🚫 After title exclusions: {after_title_filter}")
+            logger.info(f"   📤 Final filtered list: {len(df_filtered)} jobs")
+            logger.info(f"   📈 Top enhanced score: {df_filtered['Enhanced_Score'].max():.0f}")
+            logger.info(f"   📉 Lowest enhanced score: {df_filtered['Enhanced_Score'].min():.0f}")
+
+            # Log top 3 jobs for preview
+            logger.info(f"🏆 TOP 3 FILTERED JOBS:")
+            for i, (_, job) in enumerate(df_filtered.head(3).iterrows()):
+                logger.info(f"   {i+1}. {job['Title']} at {job['Company']} (Score: {job['Enhanced_Score']:.0f})")
+
+            logger.info(f"📄 Created filtered CSV: {filtered_csv_filename}")
+            return filtered_csv_filename
+
+        except Exception as e:
+            logger.error(f"Error creating filtered CSV: {e}")
+            return None
+
     def create_jobs_csv(self, scraping_run_id: int) -> str:
         """Create a CSV file with the jobs from the latest scraping run."""
         try:
@@ -606,7 +713,15 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                     logger.info(f"📊 Jobs with scores > 0: {jobs_with_scores} out of {len(jobs)}")
                 else:
                     logger.info(f"📄 Created CSV export: {csv_filename} with {len(jobs)} jobs (no keyword scoring applied), {ai_status}")
-                return csv_filename
+
+                # Create filtered version if AI evaluation is available
+                filtered_csv_filename = None
+                if self.openai_client:
+                    logger.info("🎯 Creating filtered and enhanced CSV...")
+                    filtered_csv_filename = self.create_filtered_jobs_csv(csv_filename)
+
+                # Return both filenames as a tuple
+                return csv_filename, filtered_csv_filename
                 
             finally:
                 db.close()
@@ -615,7 +730,7 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
             logger.error(f"Error creating jobs CSV: {e}")
             return None
     
-    def send_notification_email(self, summary: dict, csv_filename: str = None):
+    def send_notification_email(self, summary: dict, csv_filename: str = None, filtered_csv_filename: str = None):
         """Send email notification with scraping results."""
         if not self.email_enabled or not self.notification_email:
             logger.info("📧 Email notifications disabled or email not configured")
@@ -650,7 +765,9 @@ JobSpy Daily Scraping Report
 Started: {summary.get('start_time', 'Unknown')}
 Completed: {summary.get('end_time', 'Unknown')}
 
-{"📎 CSV file with job details is attached." if csv_filename else ""}
+📎 ATTACHMENTS:
+{"• Complete Job List: JobSpy_Daily_Jobs.csv - All scraped jobs with AI analysis" if csv_filename else ""}
+{"• Filtered Job List: JobSpy_Filtered_Jobs.csv - High-quality jobs (score ≥60, no executives)" if filtered_csv_filename else ""}
 
 ---
 Generated by JobSpy Automated Scraping System
@@ -658,12 +775,12 @@ Generated by JobSpy Automated Scraping System
             
             msg.attach(MIMEText(body, 'plain'))
             
-            # Attach CSV file if provided
+            # Attach original CSV file if provided
             if csv_filename and os.path.exists(csv_filename):
                 with open(csv_filename, "rb") as attachment:
                     part = MIMEBase('application', 'octet-stream')
                     part.set_payload(attachment.read())
-                
+
                 encoders.encode_base64(part)
                 # Create a more user-friendly filename for the attachment
                 attachment_filename = f"JobSpy_Daily_Jobs_{summary.get('date', datetime.now().strftime('%Y-%m-%d'))}.csv"
@@ -672,7 +789,23 @@ Generated by JobSpy Automated Scraping System
                     f'attachment; filename="{attachment_filename}"'
                 )
                 msg.attach(part)
-                logger.info(f"📎 Attached CSV file: {attachment_filename} ({summary.get('total_jobs', 0)} jobs included)")
+                logger.info(f"📎 Attached complete CSV: {attachment_filename} ({summary.get('total_jobs', 0)} jobs included)")
+
+            # Attach filtered CSV file if provided
+            if filtered_csv_filename and os.path.exists(filtered_csv_filename):
+                with open(filtered_csv_filename, "rb") as attachment:
+                    part = MIMEBase('application', 'octet-stream')
+                    part.set_payload(attachment.read())
+
+                encoders.encode_base64(part)
+                # Create a more user-friendly filename for the filtered attachment
+                filtered_attachment_filename = f"JobSpy_Filtered_Jobs_{summary.get('date', datetime.now().strftime('%Y-%m-%d'))}.csv"
+                part.add_header(
+                    'Content-Disposition',
+                    f'attachment; filename="{filtered_attachment_filename}"'
+                )
+                msg.attach(part)
+                logger.info(f"📎 Attached filtered CSV: {filtered_attachment_filename} (high-quality jobs only)")
             
             # Send email
             server = smtplib.SMTP(self.smtp_server, self.smtp_port)
@@ -684,10 +817,14 @@ Generated by JobSpy Automated Scraping System
             
             logger.info(f"📧 Notification email sent to {self.notification_email}")
             
-            # Clean up temporary CSV file
+            # Clean up temporary CSV files
             if csv_filename and os.path.exists(csv_filename):
                 os.remove(csv_filename)
                 logger.info(f"🗑️ Cleaned up temporary file: {csv_filename}")
+
+            if filtered_csv_filename and os.path.exists(filtered_csv_filename):
+                os.remove(filtered_csv_filename)
+                logger.info(f"🗑️ Cleaned up temporary filtered file: {filtered_csv_filename}")
             
         except Exception as e:
             logger.error(f"Failed to send notification email: {e}")
@@ -727,14 +864,20 @@ Generated by JobSpy Automated Scraping System
                     'end_time': end_time.strftime('%Y-%m-%d %H:%M:%S UTC')
                 }
                 
-                # Create CSV export
-                csv_filename = self.create_jobs_csv(scraping_run.id)
-                
+                # Create CSV export (both original and filtered versions)
+                csv_result = self.create_jobs_csv(scraping_run.id)
+                if isinstance(csv_result, tuple):
+                    csv_filename, filtered_csv_filename = csv_result
+                else:
+                    # Backward compatibility if only one filename is returned
+                    csv_filename = csv_result
+                    filtered_csv_filename = None
+
                 # Create daily job review list
                 await self._create_daily_review_list(start_time, total_jobs)
-                
-                # Send notification
-                self.send_notification_email(summary, csv_filename)
+
+                # Send notification with both CSV files
+                self.send_notification_email(summary, csv_filename, filtered_csv_filename)
                 
                 logger.info(f"📧 Notification sent with {total_jobs} jobs from {len(company_names)} companies")
                 
