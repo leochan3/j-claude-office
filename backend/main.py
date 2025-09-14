@@ -3716,6 +3716,18 @@ async def save_autoscraping_config(config: dict):
         if "companies" in config and isinstance(config["companies"], list):
             db = SessionLocal()
             try:
+                # Get current company names from config
+                config_company_names = [company_data["name"] for company_data in config["companies"] if "name" in company_data]
+
+                # Get all existing companies from database
+                existing_companies = db.query(TargetCompany).all()
+
+                # Remove companies that are no longer in the config
+                for existing_company in existing_companies:
+                    if existing_company.name not in config_company_names:
+                        db.delete(existing_company)
+                        print(f"🗑️ Removed company from database: {existing_company.name}")
+
                 # Update existing companies or create new ones
                 for company_data in config["companies"]:
                     if "name" in company_data:
@@ -3731,9 +3743,11 @@ async def save_autoscraping_config(config: dict):
                                 location_filters=[config.get("default_locations", "USA")]
                             )
                             db.add(company)
+                            print(f"➕ Added new company to database: {company_data['name']}")
                         else:
                             # Update existing company
                             company.is_active = company_data.get("active", True)
+                            print(f"🔄 Updated company in database: {company_data['name']}")
 
                 db.commit()
             except Exception as e:
