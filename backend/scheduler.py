@@ -637,6 +637,10 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                     logger.info(f"📊 Applying relevance scoring with keywords: {scoring_keywords}, expected salary: ${expected_salary:,}")
                 else:
                     logger.info("📊 No scoring keywords configured - all jobs will have score 0")
+
+                # Count jobs by site and description availability for reporting
+                site_counts = {}
+                description_counts = {"with_description": 0, "without_description": 0}
                 
                 # Create CSV content
                 output = io.StringIO()
@@ -682,6 +686,15 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                         if relevance_score > 0:
                             jobs_with_scores += 1
 
+                    # Track statistics
+                    site = job.site or 'unknown'
+                    site_counts[site] = site_counts.get(site, 0) + 1
+                    has_description = bool(job.description and job.description.strip())
+                    if has_description:
+                        description_counts["with_description"] += 1
+                    else:
+                        description_counts["without_description"] += 1
+
                     # Get AI relevance evaluation
                     ai_relevance = "Not Evaluated"
                     if self.openai_client:
@@ -697,7 +710,8 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                             logger.warning(f"AI evaluation failed for job {job_index+1}: {e}")
                             ai_relevance = "AI Error"
                     else:
-                        logger.warning("🤖 AI evaluation skipped - OpenAI client not configured")
+                        if job_index == 0:  # Only log once
+                            logger.warning("🤖 AI evaluation skipped - OpenAI client not configured")
                         ai_relevance = "AI Not Configured"
 
                     writer.writerow([
@@ -732,6 +746,10 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                 # Log scoring summary if keywords were used
                 ai_status = "with AI relevance evaluation" if self.openai_client else "without AI evaluation (OpenAI not configured)"
                 logger.info(f"🤖 AI status check: openai_client = {self.openai_client is not None}, api_key_set = {bool(self.openai_api_key)}")
+                # Log site and description statistics
+                logger.info(f"🌐 Jobs by site: {', '.join([f'{site}: {count}' for site, count in site_counts.items()])}")
+                logger.info(f"📝 Description availability: {description_counts['with_description']} with descriptions, {description_counts['without_description']} without")
+
                 if scoring_keywords:
                     logger.info(f"📄 Created CSV export: {csv_filename} with {len(jobs)} jobs, multi-keyword relevance scores, {ai_status}")
                     logger.info(f"📊 Scoring keywords used: {', '.join(scoring_keywords)}")

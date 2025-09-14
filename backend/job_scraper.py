@@ -14,6 +14,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 import pandas as pd
 from jobspy import scrape_jobs
+import requests
+import time
+from bs4 import BeautifulSoup
+import re
 
 from database import get_db, TargetCompany, ScrapedJob, ScrapingRun, create_job_hash
 from models import ScrapingRunCreate, BulkScrapingRequest
@@ -21,9 +25,18 @@ from models import ScrapingRunCreate, BulkScrapingRequest
 
 class JobScrapingService:
     """Service for scraping and managing job data."""
-    
+
     def __init__(self):
         self.supported_sites = ["indeed", "linkedin", "glassdoor", "zip_recruiter"]
+        self.session = requests.Session()
+        # Set headers to mimic a real browser
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate',
+            'Connection': 'keep-alive',
+        })
     
     def extract_experience_years(self, description: str) -> Tuple[Optional[int], Optional[int]]:
         """Extract minimum and maximum years of experience from job description."""
@@ -63,7 +76,92 @@ class JobScrapingService:
                     continue
         
         return min_years, max_years
-    
+
+    def fetch_linkedin_job_description(self, job_url: str) -> str:
+        """
+        Attempt to fetch LinkedIn job description from job URL.
+        Returns empty string if unable to fetch.
+        """
+        if not job_url or 'linkedin.com' not in job_url:
+            return ""
+
+        try:
+            # Add delay to be respectful to LinkedIn
+            time.sleep(1)
+
+            # Try to fetch the job page
+            response = self.session.get(job_url, timeout=10)
+            response.raise_for_status()
+
+            # Parse HTML
+            soup = BeautifulSoup(response.text, 'html.parser')
+
+            # Try different selectors that LinkedIn might use for job descriptions
+            description_selectors = [
+                '.description__text',
+                '.jobs-description-content__text',
+                '.jobs-description__content',
+                '[data-automation-id="jobPostingDescription"]',
+                '.jobs-box__html-content',
+                '.jobs-description',
+                'section[data-automation-id="jobPostingDescription"]'
+            ]
+
+            description_text = ""
+            for selector in description_selectors:
+                elements = soup.select(selector)
+                if elements:
+                    # Get text from the first matching element
+                    description_text = elements[0].get_text(strip=True, separator=' ')
+                    if len(description_text) > 50:  # Only consider substantial descriptions
+                        break
+
+            # Clean up the description
+            if description_text:
+                # Remove excessive whitespace
+                description_text = re.sub(r'\s+', ' ', description_text)
+                # Limit length to prevent token overflow
+                if len(description_text) > 2000:
+                    description_text = description_text[:2000] + "..."
+                print(f"✅ Fetched LinkedIn description ({len(description_text)} chars)")
+                return description_text
+            else:
+                print(f"⚠️  No description found in LinkedIn page")
+                return ""
+
+        except requests.RequestException as e:
+            print(f"⚠️  Failed to fetch LinkedIn job description: {e}")
+            return ""
+        except Exception as e:
+            print(f"⚠️  Error parsing LinkedIn job page: {e}")
+            return ""
+
+    def enrich_linkedin_jobs(self, jobs_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Enrich LinkedIn jobs with descriptions fetched from their URLs.
+        """
+        enriched_jobs = []
+        linkedin_count = 0
+        enriched_count = 0
+
+        for job in jobs_data:
+            if job.get('site') == 'linkedin' and not job.get('description'):
+                linkedin_count += 1
+                job_url = job.get('job_url', '')
+                if job_url:
+                    description = self.fetch_linkedin_job_description(job_url)
+                    if description:
+                        job['description'] = description
+                        enriched_count += 1
+                        print(f"📝 Enriched LinkedIn job: {job.get('title', '')[:50]}...")
+
+            enriched_jobs.append(job)
+
+        if linkedin_count > 0:
+            print(f"🔗 LinkedIn enrichment: {enriched_count}/{linkedin_count} jobs enhanced with descriptions")
+
+        return enriched_jobs
+
     async def scrape_company_jobs(
         self, 
         company_name: str, 
@@ -193,7 +291,11 @@ class JobScrapingService:
                     unique_jobs[key] = job
         
         final_jobs = list(unique_jobs.values())
-        
+
+        # Enrich LinkedIn jobs with descriptions
+        print(f"🔗 Enriching LinkedIn jobs with descriptions...")
+        final_jobs = self.enrich_linkedin_jobs(final_jobs)
+
         # Print analytics summary
         print(f"🎯 Total unique jobs found for {company_name}: {len(final_jobs)}")
         print(f"\n📊 SEARCH TERM PERFORMANCE ANALYTICS:")
