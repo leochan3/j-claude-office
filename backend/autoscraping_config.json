@@ -1,0 +1,32 @@
+{
+  "enabled": true,
+  "schedule_time": "02:00",
+  "max_results": 100,
+  "sites": [
+    "indeed",
+    "linkedin"
+  ],
+  "search_terms": [
+    "software engineer",
+    "data scientist",
+    "devops",
+    "backend engineer",
+    "frontend engineer",
+    "full stack developer"
+  ],
+  "exclude_keywords": "",
+  "min_relevance_score": 60,
+  "days_old": 7,
+  "ai_enabled": true,
+  "ai_model": "gpt-4.1-mini",
+  "ai_prompt": "Evaluate job relevance for product manager/engineer/software roles.\n\nRate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant, Irrelevant",
+  "target_roles": "product manager, engineer, software developer",
+  "email_enabled": true,
+  "notification_email": "szeonchan2@gmail.com",
+  "include_filtered": true,
+  "email_on_failure": true,
+  "exclude_executive": true,
+  "executive_keywords": "president, director, vp, vice president, chief, head of",
+  "seniority_filter": "",
+  "default_locations": "USA"
+}

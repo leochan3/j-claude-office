@@ -3638,8 +3638,8 @@ async def startup_event():
 async def get_autoscraping_config():
     """Get current auto-scraping configuration"""
     try:
-        # Load configuration from environment and defaults
-        config = {
+        # Default configuration
+        default_config = {
             "enabled": os.getenv("AUTO_SCRAPING_ENABLED", "true").lower() == "true",
             "schedule_time": os.getenv("AUTO_SCRAPING_TIME", "02:00"),
             "max_results": int(os.getenv("AUTO_SCRAPING_MAX_RESULTS", "100")),
@@ -3663,15 +3663,26 @@ async def get_autoscraping_config():
             "default_locations": os.getenv("DEFAULT_SCRAPING_LOCATION", "USA")
         }
 
+        # Try to load saved configuration from file
+        config_file = "autoscraping_config.json"
+        if os.path.exists(config_file):
+            try:
+                with open(config_file, 'r') as f:
+                    saved_config = json.load(f)
+                    # Merge saved config with defaults (saved config takes precedence)
+                    default_config.update(saved_config)
+            except Exception as e:
+                print(f"Error loading saved config: {e}")
+
         # Get companies from database
         db = SessionLocal()
         try:
             companies = db.query(TargetCompany).filter(TargetCompany.is_active == True).all()
-            config["companies"] = [{"name": c.name, "active": c.is_active} for c in companies]
+            default_config["companies"] = [{"name": c.name, "active": c.is_active} for c in companies]
         finally:
             db.close()
 
-        return {"success": True, "config": config}
+        return {"success": True, "config": default_config}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error loading configuration: {str(e)}")
 
@@ -3730,6 +3741,15 @@ async def save_autoscraping_config(config: dict):
                 raise HTTPException(status_code=500, detail=f"Error updating companies: {str(e)}")
             finally:
                 db.close()
+
+        # Save configuration to file (excluding companies, which are stored in database)
+        config_to_save = {k: v for k, v in config.items() if k != "companies"}
+        config_file = "autoscraping_config.json"
+        try:
+            with open(config_file, 'w') as f:
+                json.dump(config_to_save, f, indent=2)
+        except Exception as e:
+            print(f"Warning: Could not save config to file: {e}")
 
         return {"success": True, "message": "Configuration saved successfully"}
     except HTTPException:
