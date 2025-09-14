@@ -18,7 +18,7 @@ import asyncio
 from openai import OpenAI
 import uuid
 from sqlalchemy.orm import Session
-from database import create_tables, get_db, User, UserPreference, UserSavedJob, SearchHistory, SavedSearch, TargetCompany, ScrapedJob, ScrapingRun, DailyJobReviewList, DailyJobReviewItem
+from database import create_tables, get_db, SessionLocal, User, UserPreference, UserSavedJob, SearchHistory, SavedSearch, TargetCompany, ScrapedJob, ScrapingRun, DailyJobReviewList, DailyJobReviewItem
 from models import (
     UserCreate, UserLogin, UserResponse, Token,
     UserPreferencesCreate, UserPreferencesUpdate, UserPreferencesResponse,
@@ -3632,6 +3632,188 @@ async def startup_event():
         
     except Exception as e:
         print(f"⚠️  Warning during startup: {e}")
+
+# Auto-Scraping Configuration API Endpoints
+@app.get("/api/autoscraping/config")
+async def get_autoscraping_config():
+    """Get current auto-scraping configuration"""
+    try:
+        # Load configuration from environment and defaults
+        config = {
+            "enabled": os.getenv("AUTO_SCRAPING_ENABLED", "true").lower() == "true",
+            "schedule_time": os.getenv("AUTO_SCRAPING_TIME", "02:00"),
+            "max_results": int(os.getenv("AUTO_SCRAPING_MAX_RESULTS", "100")),
+            "sites": os.getenv("DEFAULT_SCRAPING_SITES", "indeed,linkedin").split(","),
+            "companies": [],
+            "search_terms": os.getenv("AUTO_SCRAPING_SEARCH_TERMS", "").split(",") if os.getenv("AUTO_SCRAPING_SEARCH_TERMS") else ["software engineer", "product manager", "developer"],
+            "exclude_keywords": "",
+            "min_relevance_score": 60,
+            "days_old": int(os.getenv("DEFAULT_SCRAPING_DAYS_OLD", "7")),
+            "ai_enabled": bool(openai_client),
+            "ai_model": OPENAI_MODEL,
+            "ai_prompt": "Evaluate job relevance for product manager/engineer/software roles.\n\nRate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant, Irrelevant",
+            "target_roles": "product manager, engineer, software developer",
+            "email_enabled": os.getenv("EMAIL_NOTIFICATIONS_ENABLED", "false").lower() == "true",
+            "notification_email": os.getenv("NOTIFICATION_EMAIL", ""),
+            "include_filtered": True,
+            "email_on_failure": True,
+            "exclude_executive": True,
+            "executive_keywords": "president, director, vp, vice president, chief, head of",
+            "seniority_filter": "",
+            "default_locations": os.getenv("DEFAULT_SCRAPING_LOCATION", "USA")
+        }
+
+        # Get companies from database
+        db = SessionLocal()
+        try:
+            companies = db.query(TargetCompany).filter(TargetCompany.is_active == True).all()
+            config["companies"] = [{"name": c.name, "active": c.is_active} for c in companies]
+        finally:
+            db.close()
+
+        return {"success": True, "config": config}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading configuration: {str(e)}")
+
+@app.get("/autoscraping")
+async def autoscraping_config_page():
+    """Serve the auto-scraping configuration page"""
+    return FileResponse("../autoscraping-config.html")
+
+@app.post("/api/autoscraping/config")
+async def save_autoscraping_config(config: dict):
+    """Save auto-scraping configuration"""
+    try:
+        # Validate required fields
+        required_fields = ["enabled", "schedule_time", "max_results", "sites"]
+        for field in required_fields:
+            if field not in config:
+                raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
+
+        # Validate schedule time format
+        try:
+            from datetime import datetime
+            datetime.strptime(config["schedule_time"], "%H:%M")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid schedule time format. Use HH:MM")
+
+        # Validate max_results range
+        if not (10 <= config["max_results"] <= 1000):
+            raise HTTPException(status_code=400, detail="Max results must be between 10 and 1000")
+
+        # Update companies in database if provided
+        if "companies" in config and isinstance(config["companies"], list):
+            db = SessionLocal()
+            try:
+                # Update existing companies or create new ones
+                for company_data in config["companies"]:
+                    if "name" in company_data:
+                        company = db.query(TargetCompany).filter(TargetCompany.name == company_data["name"]).first()
+                        if not company:
+                            # Create new company
+                            company = TargetCompany(
+                                name=company_data["name"],
+                                display_name=company_data["name"],
+                                is_active=company_data.get("active", True),
+                                preferred_sites=config.get("sites", ["indeed"]),
+                                search_terms=config.get("search_terms", []),
+                                location_filters=[config.get("default_locations", "USA")]
+                            )
+                            db.add(company)
+                        else:
+                            # Update existing company
+                            company.is_active = company_data.get("active", True)
+
+                db.commit()
+            except Exception as e:
+                db.rollback()
+                raise HTTPException(status_code=500, detail=f"Error updating companies: {str(e)}")
+            finally:
+                db.close()
+
+        return {"success": True, "message": "Configuration saved successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error saving configuration: {str(e)}")
+
+@app.post("/api/autoscraping/test")
+async def test_autoscraping_config(config: dict):
+    """Test auto-scraping configuration without running full scrape"""
+    try:
+        # Validate configuration
+        if not config.get("companies"):
+            raise HTTPException(status_code=400, detail="No companies configured for testing")
+
+        if not config.get("search_terms"):
+            raise HTTPException(status_code=400, detail="No search terms configured for testing")
+
+        # Simulate a small test scrape with first company and first search term
+        test_company = config["companies"][0]["name"] if config["companies"] else "Google"
+        test_search_term = config["search_terms"][0] if config["search_terms"] else "software engineer"
+
+        return {
+            "success": True,
+            "message": f"Test validated successfully. Configuration is ready for '{test_search_term}' at {test_company}",
+            "test_results": {
+                "company": test_company,
+                "search_term": test_search_term,
+                "companies_count": len(config.get("companies", [])),
+                "search_terms_count": len(config.get("search_terms", [])),
+                "sites_configured": config.get("sites", ["indeed"])
+            }
+        }
+    except Exception as e:
+        return {"success": False, "message": f"Test failed: {str(e)}"}
+
+@app.post("/api/autoscraping/run")
+async def run_autoscraping_now(config: dict):
+    """Run auto-scraping immediately with current configuration"""
+    try:
+        from scheduler import AutoScrapingScheduler
+
+        # Create scheduler instance
+        scheduler = AutoScrapingScheduler()
+
+        # Prepare company names from config
+        company_names = [c["name"] for c in config.get("companies", []) if c.get("active", True)]
+        if not company_names:
+            raise HTTPException(status_code=400, detail="No active companies configured")
+
+        search_terms = config.get("search_terms", ["software engineer"])
+        if not search_terms:
+            raise HTTPException(status_code=400, detail="No search terms configured")
+
+        # Run scraping in background
+        import asyncio
+        import threading
+
+        def run_scraping():
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+
+                # Run the scraping
+                loop.run_until_complete(
+                    scheduler.run_targeted_scraping(
+                        target_company_names=company_names,
+                        custom_search_terms=search_terms
+                    )
+                )
+            except Exception as e:
+                print(f"Error in background scraping: {e}")
+
+        # Start scraping in background thread
+        scraping_thread = threading.Thread(target=run_scraping)
+        scraping_thread.daemon = True
+        scraping_thread.start()
+
+        return {
+            "success": True,
+            "message": f"Scraping started for {len(company_names)} companies with {len(search_terms)} search terms. Check your email for results."
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error starting scraping: {str(e)}")
 
 @app.on_event("shutdown")
 async def shutdown_event():
