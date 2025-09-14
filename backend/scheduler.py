@@ -23,7 +23,7 @@ from email.mime.base import MIMEBase
 from email import encoders
 from sqlalchemy.orm import Session
 
-from database import SessionLocal, TargetCompany
+from database import SessionLocal, TargetCompany, ScrapingRun
 from job_scraper import job_scraper
 from models import BulkScrapingRequest
 from daily_job_review import daily_job_reviewer
@@ -605,11 +605,23 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                     logger.warning("No jobs found for CSV export")
                     return None
                 
-                # Get scoring configuration
-                scoring_config = self._get_scoring_config()
-                scoring_keywords = scoring_config.get('scoring_keywords', [])
-                expected_salary = scoring_config.get('expected_salary', 0)
-                
+                # Get search terms from the scraping run parameters
+                scoring_keywords = []
+                expected_salary = 0
+
+                # First try to get search terms from the scraping run
+                scraping_run = db.query(ScrapingRun).filter(ScrapingRun.id == scraping_run_id).first()
+                if scraping_run and scraping_run.search_parameters:
+                    search_params = scraping_run.search_parameters
+                    if isinstance(search_params, dict) and 'search_terms' in search_params:
+                        scoring_keywords = search_params['search_terms']
+
+                # Fall back to scoring config if no search terms found
+                if not scoring_keywords:
+                    scoring_config = self._get_scoring_config()
+                    scoring_keywords = scoring_config.get('scoring_keywords', [])
+                    expected_salary = scoring_config.get('expected_salary', 0)
+
                 if scoring_keywords:
                     logger.info(f"📊 Applying relevance scoring with keywords: {scoring_keywords}, expected salary: ${expected_salary:,}")
                 else:
@@ -674,6 +686,7 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                             logger.warning(f"AI evaluation failed for job {job_index+1}: {e}")
                             ai_relevance = "AI Error"
                     else:
+                        logger.warning("🤖 AI evaluation skipped - OpenAI client not configured")
                         ai_relevance = "AI Not Configured"
 
                     writer.writerow([
@@ -707,6 +720,7 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                 
                 # Log scoring summary if keywords were used
                 ai_status = "with AI relevance evaluation" if self.openai_client else "without AI evaluation (OpenAI not configured)"
+                logger.info(f"🤖 AI status check: openai_client = {self.openai_client is not None}, api_key_set = {bool(self.openai_api_key)}")
                 if scoring_keywords:
                     logger.info(f"📄 Created CSV export: {csv_filename} with {len(jobs)} jobs, multi-keyword relevance scores, {ai_status}")
                     logger.info(f"📊 Scoring keywords used: {', '.join(scoring_keywords)}")

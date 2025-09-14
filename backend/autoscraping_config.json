@@ -1,18 +1,14 @@
 {
   "enabled": true,
   "schedule_time": "02:00",
-  "max_results": 100,
+  "max_results": 1000,
   "sites": [
     "indeed",
     "linkedin"
   ],
   "search_terms": [
-    "software engineer",
-    "data scientist",
-    "devops",
     "backend engineer",
-    "frontend engineer",
-    "full stack developer"
+    "fullstack engineer"
   ],
   "exclude_keywords": "",
   "min_relevance_score": 60,
