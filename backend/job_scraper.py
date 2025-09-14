@@ -95,7 +95,23 @@ class JobScrapingService:
             sites = ["indeed"]
         if not locations:
             locations = ["USA", "Remote", "United States"]
-        
+
+        # Always add company name and "all" as search terms for better coverage
+        if search_terms is None:
+            search_terms = []
+        search_terms = search_terms.copy()  # Don't modify the original list
+
+        # Add company name if not already present
+        company_term = company_name.lower().strip()
+        if company_term not in [term.lower().strip() for term in search_terms]:
+            search_terms.append(company_name)
+            print(f"🎯 Added company name '{company_name}' as search term")
+
+        # Add "all" for broader coverage if not already present
+        if "all" not in [term.lower().strip() for term in search_terms]:
+            search_terms.append("all")
+            print(f"🎯 Added 'all' as search term for broader coverage")
+
         all_jobs = []
         search_analytics = {}  # Track results per search term
         

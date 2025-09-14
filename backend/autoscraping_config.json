@@ -7,13 +7,14 @@
     "linkedin"
   ],
   "search_terms": [
-    "data"
+    "data",
+    "product"
   ],
-  "exclude_keywords": "",
+  "exclude_keywords": "director",
   "min_relevance_score": 60,
   "days_old": 7,
   "ai_enabled": true,
-  "ai_model": "gpt-4.1-mini",
+  "ai_model": "gpt-4.1-nano",
   "ai_prompt": "Evaluate job relevance for product manager/engineer/software roles.\n\nRate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant, Irrelevant",
   "target_roles": "product manager, engineer, software developer",
   "email_enabled": true,

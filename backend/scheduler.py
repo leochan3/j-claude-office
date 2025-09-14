@@ -616,6 +616,17 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                     if isinstance(search_params, dict) and 'search_terms' in search_params:
                         scoring_keywords = search_params['search_terms']
 
+                        # Filter out company names and "all" for scoring purposes
+                        if isinstance(scoring_keywords, list):
+                            company_names = search_params.get('company_names', [])
+                            scoring_keywords = [
+                                term for term in scoring_keywords
+                                if term.lower() not in ['all'] and
+                                term not in company_names and
+                                term.lower() not in [name.lower() for name in company_names]
+                            ]
+                            logger.info(f"🎯 Filtered out company names and 'all' from scoring keywords")
+
                 # Fall back to scoring config if no search terms found
                 if not scoring_keywords:
                     scoring_config = self._get_scoring_config()
