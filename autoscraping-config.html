@@ -371,22 +371,9 @@
                     <div class="help-text">Time when auto-scraping runs daily (24-hour format)</div>
                 </div>
 
-                <div class="form-group">
-                    <label for="maxResults">Max Results Per Company</label>
-                    <input type="number" id="maxResults" value="100" min="10" max="1000">
-                    <div class="help-text">Maximum number of jobs to scrape per company</div>
-                </div>
-
-                <div class="form-group">
-                    <label for="jobSites">Job Sites to Search</label>
-                    <select id="jobSites" multiple style="height: 120px;">
-                        <option value="indeed">Indeed</option>
-                        <option value="linkedin">LinkedIn</option>
-                        <option value="glassdoor">Glassdoor</option>
-                        <option value="zip_recruiter">ZipRecruiter</option>
-                    </select>
-                    <div class="help-text">Hold Ctrl/Cmd to select multiple sites</div>
-                </div>
+                <!-- Hidden fields with default values -->
+                <input type="hidden" id="maxResults" value="1000">
+                <input type="hidden" id="jobSites" value="indeed,linkedin">
             </div>
 
             <!-- Companies Management -->
@@ -403,11 +390,8 @@
                     <!-- Companies will be loaded here -->
                 </div>
 
-                <div class="form-group" style="margin-top: 20px;">
-                    <label for="defaultLocations">Default Locations</label>
-                    <input type="text" id="defaultLocations" placeholder="USA, Canada, Remote" value="USA">
-                    <div class="help-text">Comma-separated list of locations to search</div>
-                </div>
+                <!-- Hidden field with default value -->
+                <input type="hidden" id="defaultLocations" value="USA">
             </div>
 
             <!-- Search Terms & Keywords -->
@@ -427,16 +411,9 @@
                     <div class="help-text">Jobs containing these words will be filtered out</div>
                 </div>
 
-                <div class="form-group">
-                    <label for="minRelevanceScore">Minimum Relevance Score</label>
-                    <input type="number" id="minRelevanceScore" value="60" min="0" max="100">
-                    <div class="help-text">Only include jobs with relevance score above this threshold</div>
-                </div>
-
-                <div class="form-group">
-                    <label for="daysOld">Max Job Age (Days)</label>
-                    <input type="number" id="daysOld" value="7" min="1" max="30">
-                    <div class="help-text">Only scrape jobs posted within this many days</div>
+                <!-- Hidden fields with default values -->
+                <input type="hidden" id="minRelevanceScore" value="60">
+                <input type="hidden" id="daysOld" value="7">
                 </div>
             </div>
 
@@ -471,11 +448,8 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                     <div class="help-text">Customize how AI evaluates job relevance for your needs</div>
                 </div>
 
-                <div class="form-group">
-                    <label for="targetRoles">Target Roles for AI</label>
-                    <input type="text" id="targetRoles" value="product manager, engineer, software developer" placeholder="Describe your target roles">
-                    <div class="help-text">Help AI understand what roles you're looking for</div>
-                </div>
+                <!-- Hidden field with default value -->
+                <input type="hidden" id="targetRoles" value="product manager, engineer, software developer">
             </div>
 
             <!-- Email & Notifications -->
@@ -516,43 +490,10 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                 </div>
             </div>
 
-            <!-- Executive Filter Settings -->
-            <div class="config-card">
-                <h3 class="card-title">🚫 Executive Role Filtering</h3>
-
-                <div class="form-group">
-                    <label for="excludeExecutive">Exclude Executive Positions</label>
-                    <label class="toggle-switch">
-                        <input type="checkbox" id="excludeExecutive" checked>
-                        <span class="slider"></span>
-                    </label>
-                    <div class="help-text">Filter out senior executive roles from results</div>
-                </div>
-
-                <div class="form-group">
-                    <label for="executiveKeywords">Executive Keywords to Exclude</label>
-                    <input type="text" id="executiveKeywords" value="president, director, vp, vice president, chief, head of" placeholder="Keywords that indicate executive roles">
-                    <div class="help-text">Comma-separated keywords to identify executive positions</div>
-                </div>
-
-                <div class="form-group">
-                    <label for="seniorityFilter">Additional Seniority Filters</label>
-                    <input type="text" id="seniorityFilter" placeholder="senior director, principal, lead" value="">
-                    <div class="help-text">Additional senior-level keywords to exclude (optional)</div>
-                </div>
-            </div>
-
-            <!-- Configuration Preview -->
-            <div class="preview-section">
-                <h3 class="card-title">👁️ Configuration Preview</h3>
-                <div class="preview-content" id="configPreview">
-                    Loading current configuration...
-                </div>
-                <div style="margin-top: 20px;">
-                    <button class="btn btn-secondary" onclick="updatePreview()">🔄 Refresh Preview</button>
-                    <button class="btn btn-primary" onclick="testConfiguration()">🧪 Test Configuration</button>
-                </div>
-            </div>
+            <!-- Hidden executive role filtering fields with defaults -->
+            <input type="hidden" id="excludeExecutive" value="true">
+            <input type="hidden" id="executiveKeywords" value="president, director, vp, vice president, chief, head of">
+            <input type="hidden" id="seniorityFilter" value="">
         </div>
 
         <!-- Action Buttons -->
@@ -560,6 +501,7 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
             <button class="btn btn-success" onclick="saveConfiguration()">💾 Save Configuration</button>
             <button class="btn btn-secondary" onclick="loadConfiguration()">🔄 Reset to Saved</button>
             <button class="btn btn-primary" onclick="runNow()">🚀 Run Scraping Now</button>
+            <button class="btn btn-secondary" onclick="testConfiguration()">🧪 Test Configuration</button>
         </div>
     </div>
 
@@ -596,6 +538,8 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
         document.addEventListener('DOMContentLoaded', function() {
             loadConfiguration();
             initializeEventListeners();
+            // Initial status update in case config loading fails
+            setTimeout(() => updateStatus(), 100);
         });
 
         function initializeEventListeners() {
@@ -607,10 +551,10 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                 }
             });
 
-            // Auto-update preview when form changes
+            // Auto-update status when form changes
             const formElements = document.querySelectorAll('input, select, textarea');
             formElements.forEach(element => {
-                element.addEventListener('change', updatePreview);
+                element.addEventListener('change', updateStatus);
             });
 
             // Company input
@@ -630,14 +574,12 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                 config.search_terms.push(term);
                 renderSearchTerms();
                 input.value = '';
-                updatePreview();
             }
         }
 
         function removeSearchTerm(term) {
             config.search_terms = config.search_terms.filter(t => t !== term);
             renderSearchTerms();
-            updatePreview();
         }
 
         function renderSearchTerms() {
@@ -661,14 +603,12 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                 });
                 renderCompanies();
                 input.value = '';
-                updatePreview();
             }
         }
 
         function removeCompany(companyName) {
             config.companies = config.companies.filter(c => c.name !== companyName);
             renderCompanies();
-            updatePreview();
         }
 
         function toggleCompany(companyName) {
@@ -676,7 +616,6 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
             if (company) {
                 company.active = !company.active;
                 renderCompanies();
-                updatePreview();
             }
         }
 
@@ -698,34 +637,6 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
             ).join('');
         }
 
-        function updatePreview() {
-            const preview = document.getElementById('configPreview');
-            const activeCompanies = config.companies.filter(c => c.active);
-
-            preview.textContent = `🤖 Auto-Scraping Configuration Preview
-
-📅 Schedule: ${config.enabled ? 'Daily at ' + config.schedule_time : 'DISABLED'}
-🏢 Companies: ${activeCompanies.length} active companies
-🔍 Search Terms: ${config.search_terms.length} terms
-🌐 Job Sites: ${Array.from(document.getElementById('jobSites').selectedOptions).map(o => o.text).join(', ')}
-📊 Max Results per Company: ${config.max_results}
-🎯 Min Relevance Score: ${config.min_relevance_score}
-📧 Email Notifications: ${config.email_enabled ? 'Enabled' : 'Disabled'}
-🤖 AI Evaluation: ${config.ai_enabled ? 'Enabled (' + config.ai_model + ')' : 'Disabled'}
-
-Active Companies:
-${activeCompanies.map(c => `  • ${c.name}`).join('\n')}
-
-Search Terms:
-${config.search_terms.map(t => `  • "${t}"`).join('\n')}
-
-Filtering Rules:
-  • Exclude jobs older than ${config.days_old} days
-  • Minimum relevance score: ${config.min_relevance_score}
-  • Executive filtering: ${config.exclude_executive ? 'Enabled' : 'Disabled'}
-  ${config.exclude_keywords ? '• Exclude keywords: ' + config.exclude_keywords : ''}
-`;
-        }
 
         function saveConfiguration() {
             try {
@@ -778,23 +689,24 @@ Filtering Rules:
             try {
                 config.enabled = document.getElementById('enableScraping')?.checked || false;
                 config.schedule_time = document.getElementById('scheduleTime')?.value || '02:00';
-                config.max_results = parseInt(document.getElementById('maxResults')?.value || '100');
-                config.sites = Array.from(document.getElementById('jobSites')?.selectedOptions || []).map(o => o.value);
+                config.max_results = 1000;
+                // Use default sites instead of form input
+                config.sites = ['indeed', 'linkedin'];
                 config.exclude_keywords = document.getElementById('excludeKeywords')?.value || '';
-                config.min_relevance_score = parseInt(document.getElementById('minRelevanceScore')?.value || '60');
-                config.days_old = parseInt(document.getElementById('daysOld')?.value || '7');
+                config.min_relevance_score = 60;
+                config.days_old = 7;
                 config.ai_enabled = document.getElementById('aiEnabled')?.checked || false;
                 config.ai_model = document.getElementById('aiModel')?.value || 'gpt-4.1-mini';
                 config.ai_prompt = document.getElementById('aiPrompt')?.value || '';
-                config.target_roles = document.getElementById('targetRoles')?.value || '';
+                config.target_roles = 'product manager, engineer, software developer';
                 config.email_enabled = document.getElementById('emailEnabled')?.checked || false;
                 config.notification_email = document.getElementById('notificationEmail')?.value || '';
                 config.include_filtered = document.getElementById('includeFiltered')?.checked || true;
                 config.email_on_failure = document.getElementById('emailOnFailure')?.checked || false;
-                config.exclude_executive = document.getElementById('excludeExecutive')?.checked || false;
-                config.executive_keywords = document.getElementById('executiveKeywords')?.value || '';
-                config.seniority_filter = document.getElementById('seniorityFilter')?.value || '';
-                config.default_locations = document.getElementById('defaultLocations')?.value || 'USA';
+                config.exclude_executive = true;
+                config.executive_keywords = 'president, director, vp, vice president, chief, head of';
+                config.seniority_filter = '';
+                config.default_locations = 'USA';
 
                 // Ensure sites array is not empty
                 if (config.sites.length === 0) {
@@ -815,47 +727,31 @@ Filtering Rules:
                     if (data.success) {
                         config = { ...config, ...data.config };
                         populateForm();
-                        updatePreview();
-                        updateStatus();
                     }
                 })
                 .catch(error => {
                     console.error('Error loading configuration:', error);
                     // Use default config and populate form
                     populateForm();
-                    updatePreview();
                 });
         }
 
         function populateForm() {
             document.getElementById('enableScraping').checked = config.enabled;
             document.getElementById('scheduleTime').value = config.schedule_time;
-            document.getElementById('maxResults').value = config.max_results;
-
-            // Set selected job sites
-            const jobSitesSelect = document.getElementById('jobSites');
-            Array.from(jobSitesSelect.options).forEach(option => {
-                option.selected = config.sites.includes(option.value);
-            });
-
-            document.getElementById('excludeKeywords').value = config.exclude_keywords;
-            document.getElementById('minRelevanceScore').value = config.min_relevance_score;
-            document.getElementById('daysOld').value = config.days_old;
+            // Only populate visible form elements (hidden elements don't need population)
+            document.getElementById('excludeKeywords').value = config.exclude_keywords || '';
             document.getElementById('aiEnabled').checked = config.ai_enabled;
-            document.getElementById('aiModel').value = config.ai_model;
-            document.getElementById('aiPrompt').value = config.ai_prompt;
-            document.getElementById('targetRoles').value = config.target_roles;
+            document.getElementById('aiModel').value = config.ai_model || 'gpt-4.1-mini';
+            document.getElementById('aiPrompt').value = config.ai_prompt || '';
             document.getElementById('emailEnabled').checked = config.email_enabled;
-            document.getElementById('notificationEmail').value = config.notification_email;
+            document.getElementById('notificationEmail').value = config.notification_email || '';
             document.getElementById('includeFiltered').checked = config.include_filtered;
             document.getElementById('emailOnFailure').checked = config.email_on_failure;
-            document.getElementById('excludeExecutive').checked = config.exclude_executive;
-            document.getElementById('executiveKeywords').value = config.executive_keywords;
-            document.getElementById('seniorityFilter').value = config.seniority_filter;
-            document.getElementById('defaultLocations').value = config.default_locations;
 
             renderSearchTerms();
             renderCompanies();
+            updateStatus();
         }
 
         function updateStatus() {

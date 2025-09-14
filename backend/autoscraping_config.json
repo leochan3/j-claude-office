@@ -1,14 +1,13 @@
 {
   "enabled": true,
-  "schedule_time": "02:00",
+  "schedule_time": "01:00",
   "max_results": 1000,
   "sites": [
     "indeed",
     "linkedin"
   ],
   "search_terms": [
-    "backend engineer",
-    "fullstack engineer"
+    "data"
   ],
   "exclude_keywords": "",
   "min_relevance_score": 60,
@@ -18,7 +17,7 @@
   "ai_prompt": "Evaluate job relevance for product manager/engineer/software roles.\n\nRate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant, Irrelevant",
   "target_roles": "product manager, engineer, software developer",
   "email_enabled": true,
-  "notification_email": "szeonchan2@gmail.com",
+  "notification_email": "",
   "include_filtered": true,
   "email_on_failure": true,
   "exclude_executive": true,
