@@ -4014,6 +4014,11 @@ async def filtered_jobs_page():
     """Serve the filtered jobs UI page"""
     return FileResponse("../filtered-jobs.html")
 
+@app.get("/savedjobs")
+async def saved_jobs_page():
+    """Serve the saved jobs HTML page"""
+    return FileResponse("../saved-jobs.html")
+
 @app.post("/api/filtered-jobs/process-existing")
 async def process_existing_scraped_jobs(
     days_back: int = Query(7, description="Process jobs from last N days"),
