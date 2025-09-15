@@ -337,6 +337,43 @@ class DailyJobReviewItem(Base):
         Index('idx_review_item_status', 'is_selected', 'is_dismissed'),
     )
 
+class FilteredJobView(Base):
+    """
+    Stores daily filtered job selections with enhanced scoring.
+    References existing ScrapedJob records instead of duplicating data.
+    """
+    __tablename__ = "filtered_job_views"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+
+    # Reference to the original scraped job
+    scraped_job_id = Column(String, ForeignKey("scraped_jobs.id"), nullable=False)
+    scraping_run_id = Column(String, ForeignKey("scraping_runs.id"), nullable=False)
+
+    # Filtering metadata
+    filter_date = Column(Date, nullable=False, index=True)  # Date when this job was filtered
+    relevance_score = Column(Float, default=0)  # Base relevance score
+    enhanced_score = Column(Float, default=0)   # Enhanced score with AI bonuses
+    best_matching_keyword = Column(String)      # Keyword that gave highest score
+    ai_relevance = Column(String)               # AI evaluation result
+
+    # Filtering criteria used
+    filter_criteria = Column(JSON)  # Store the filtering rules applied
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    scraped_job = relationship("ScrapedJob", backref="filtered_views")
+    scraping_run = relationship("ScrapingRun", backref="filtered_jobs")
+
+    __table_args__ = (
+        # Ensure unique job per filter date (prevent duplicates)
+        Index('idx_filtered_job_date', 'scraped_job_id', 'filter_date', unique=True),
+        Index('idx_filter_date_score', 'filter_date', 'enhanced_score'),
+        Index('idx_filter_date_ai', 'filter_date', 'ai_relevance'),
+    )
+
 def create_job_hash(title: str, company: str, location: str, job_url: str = None) -> str:
     """Create a hash for job deduplication."""
     # Use job_url if available, otherwise use title+company+location

@@ -609,6 +609,9 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
             # Save filtered CSV
             df_filtered.to_csv(filtered_csv_filename, index=False)
 
+            # Save filtered jobs to database
+            self.save_filtered_jobs_to_database(df_filtered)
+
             # Log filtering summary
             logger.info(f"📋 FILTERING SUMMARY:")
             logger.info(f"   📥 Original jobs: {original_count}")
@@ -630,6 +633,80 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
         except Exception as e:
             logger.error(f"Error creating filtered CSV: {e}")
             return None
+
+    def save_filtered_jobs_to_database(self, df_filtered):
+        """Save filtered jobs to the FilteredJobView table for the UI."""
+        try:
+            from database import FilteredJobView, ScrapedJob
+            from datetime import date
+            import json
+
+            db = SessionLocal()
+            try:
+                today = date.today()
+                saved_count = 0
+
+                logger.info(f"💾 Saving {len(df_filtered)} filtered jobs to database...")
+
+                for _, row in df_filtered.iterrows():
+                    try:
+                        # Find the corresponding ScrapedJob by matching URL and title
+                        scraped_job = db.query(ScrapedJob).filter(
+                            ScrapedJob.job_url == row.get('Job_URL'),
+                            ScrapedJob.title == row.get('Title'),
+                            ScrapedJob.company == row.get('Company')
+                        ).first()
+
+                        if not scraped_job:
+                            # Try to find by title and company if URL doesn't match
+                            scraped_job = db.query(ScrapedJob).filter(
+                                ScrapedJob.title == row.get('Title'),
+                                ScrapedJob.company == row.get('Company')
+                            ).first()
+
+                        if scraped_job:
+                            # Check if this job is already in FilteredJobView for today
+                            existing_entry = db.query(FilteredJobView).filter(
+                                FilteredJobView.scraped_job_id == scraped_job.id,
+                                FilteredJobView.filter_date == today
+                            ).first()
+
+                            if not existing_entry:
+                                # Create filter criteria metadata
+                                filter_criteria = {
+                                    "min_relevance_score": 60,
+                                    "ai_relevance_excluded": ["Irrelevant"],
+                                    "excluded_titles": ["president", "director", "VP", "chief"],
+                                    "enhanced_scoring": True
+                                }
+
+                                # Create FilteredJobView entry
+                                filtered_view = FilteredJobView(
+                                    scraped_job_id=scraped_job.id,
+                                    scraping_run_id=scraped_job.scraping_run_id,
+                                    filter_date=today,
+                                    relevance_score=float(row.get('Relevance_Score', 0)),
+                                    enhanced_score=float(row.get('Enhanced_Score', 0)),
+                                    best_matching_keyword=row.get('Best_Matching_Keyword'),
+                                    ai_relevance=row.get('AI_Relevance'),
+                                    filter_criteria=filter_criteria
+                                )
+
+                                db.add(filtered_view)
+                                saved_count += 1
+
+                    except Exception as row_error:
+                        logger.warning(f"⚠️  Error saving filtered job row: {row_error}")
+                        continue
+
+                db.commit()
+                logger.info(f"✅ Successfully saved {saved_count} filtered jobs to database")
+
+            finally:
+                db.close()
+
+        except Exception as e:
+            logger.error(f"❌ Error saving filtered jobs to database: {e}")
 
     def create_jobs_csv(self, scraping_run_id: int) -> str:
         """Create a CSV file with the jobs from the latest scraping run."""

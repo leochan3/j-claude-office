@@ -18,7 +18,7 @@ import asyncio
 from openai import OpenAI
 import uuid
 from sqlalchemy.orm import Session
-from database import create_tables, get_db, SessionLocal, User, UserPreference, UserSavedJob, SearchHistory, SavedSearch, TargetCompany, ScrapedJob, ScrapingRun, DailyJobReviewList, DailyJobReviewItem
+from database import create_tables, get_db, SessionLocal, User, UserPreference, UserSavedJob, SearchHistory, SavedSearch, TargetCompany, ScrapedJob, ScrapingRun, DailyJobReviewList, DailyJobReviewItem, FilteredJobView
 from models import (
     UserCreate, UserLogin, UserResponse, Token,
     UserPreferencesCreate, UserPreferencesUpdate, UserPreferencesResponse,
@@ -31,7 +31,8 @@ from models import (
     ComprehensiveTermsCreate, ComprehensiveTermsResponse,
     ScrapingDefaultsCreate, ScrapingDefaultsResponse,
     DailyJobReviewListResponse, DailyJobReviewListSummary, DailyJobReviewItemResponse,
-    UpdateReviewItemRequest, CreateDailyReviewRequest
+    UpdateReviewItemRequest, CreateDailyReviewRequest,
+    FilteredJobViewResponse, FilteredJobSearchRequest, FilteredJobSearchResponse, FilteredJobDateRange
 )
 from auth import authenticate_user, create_access_token, get_current_active_user, ACCESS_TOKEN_EXPIRE_MINUTES
 from user_service import UserService
@@ -3848,6 +3849,170 @@ async def run_autoscraping_now(config: dict):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error starting scraping: {str(e)}")
+
+# Filtered Jobs API Endpoints
+@app.get("/api/filtered-jobs", response_model=FilteredJobSearchResponse)
+async def search_filtered_jobs(
+    start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    days_back: Optional[int] = Query(1, description="Get last N days"),
+    min_enhanced_score: Optional[float] = Query(None, description="Minimum enhanced score"),
+    ai_relevance_filter: Optional[str] = Query(None, description="Comma-separated AI relevance levels"),
+    company_filter: Optional[str] = Query(None, description="Company name filter"),
+    location_filter: Optional[str] = Query(None, description="Location filter"),
+    job_type_filter: Optional[str] = Query(None, description="Job type filter"),
+    is_remote: Optional[bool] = Query(None, description="Remote job filter"),
+    limit: Optional[int] = Query(100, description="Number of jobs to return"),
+    offset: Optional[int] = Query(0, description="Offset for pagination"),
+    sort_by: Optional[str] = Query("enhanced_score", description="Sort field"),
+    sort_order: Optional[str] = Query("desc", description="Sort order"),
+    db: Session = Depends(get_db)
+):
+    """Get filtered jobs with optional date range and filtering."""
+    try:
+        from sqlalchemy import and_, or_, desc, asc, func
+        from datetime import date, timedelta
+
+        # Build base query
+        query = db.query(FilteredJobView).join(ScrapedJob)
+
+        # Handle date filtering
+        if start_date and end_date:
+            try:
+                start = datetime.strptime(start_date, "%Y-%m-%d").date()
+                end = datetime.strptime(end_date, "%Y-%m-%d").date()
+                query = query.filter(FilteredJobView.filter_date.between(start, end))
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+        elif days_back:
+            end_date_obj = date.today()
+            start_date_obj = end_date_obj - timedelta(days=days_back - 1)
+            query = query.filter(FilteredJobView.filter_date.between(start_date_obj, end_date_obj))
+
+        # Apply filters
+        if min_enhanced_score is not None:
+            query = query.filter(FilteredJobView.enhanced_score >= min_enhanced_score)
+
+        if ai_relevance_filter:
+            ai_levels = [level.strip() for level in ai_relevance_filter.split(",")]
+            query = query.filter(FilteredJobView.ai_relevance.in_(ai_levels))
+
+        if company_filter:
+            query = query.filter(ScrapedJob.company.ilike(f"%{company_filter}%"))
+
+        if location_filter:
+            query = query.filter(ScrapedJob.location.ilike(f"%{location_filter}%"))
+
+        if job_type_filter:
+            query = query.filter(ScrapedJob.job_type.ilike(f"%{job_type_filter}%"))
+
+        if is_remote is not None:
+            query = query.filter(ScrapedJob.is_remote == is_remote)
+
+        # Get total count
+        total_count = query.count()
+
+        # Apply sorting
+        if sort_by == "enhanced_score":
+            sort_field = FilteredJobView.enhanced_score
+        elif sort_by == "filter_date":
+            sort_field = FilteredJobView.filter_date
+        elif sort_by == "date_posted":
+            sort_field = ScrapedJob.date_posted
+        else:
+            sort_field = FilteredJobView.enhanced_score
+
+        if sort_order == "desc":
+            query = query.order_by(desc(sort_field))
+        else:
+            query = query.order_by(asc(sort_field))
+
+        # Apply pagination
+        filtered_jobs = query.offset(offset).limit(limit).all()
+
+        # Get available dates
+        available_dates_query = db.query(FilteredJobView.filter_date.distinct()).order_by(desc(FilteredJobView.filter_date))
+        available_dates = [str(date_obj[0]) for date_obj in available_dates_query.limit(30).all()]
+
+        # Convert to response models
+        job_responses = []
+        for filtered_job in filtered_jobs:
+            # Get the scraped job data
+            scraped_job = db.query(ScrapedJob).filter(ScrapedJob.id == filtered_job.scraped_job_id).first()
+            if scraped_job:
+                scraped_job_response = ScrapedJobResponse.from_orm(scraped_job)
+
+                filtered_job_response = FilteredJobViewResponse(
+                    id=filtered_job.id,
+                    scraped_job_id=filtered_job.scraped_job_id,
+                    scraping_run_id=filtered_job.scraping_run_id,
+                    filter_date=str(filtered_job.filter_date),
+                    relevance_score=filtered_job.relevance_score,
+                    enhanced_score=filtered_job.enhanced_score,
+                    best_matching_keyword=filtered_job.best_matching_keyword,
+                    ai_relevance=filtered_job.ai_relevance,
+                    filter_criteria=filtered_job.filter_criteria,
+                    created_at=filtered_job.created_at,
+                    scraped_job=scraped_job_response
+                )
+                job_responses.append(filtered_job_response)
+
+        search_params = {
+            "start_date": start_date,
+            "end_date": end_date,
+            "days_back": days_back,
+            "min_enhanced_score": min_enhanced_score,
+            "ai_relevance_filter": ai_relevance_filter,
+            "company_filter": company_filter,
+            "location_filter": location_filter,
+            "job_type_filter": job_type_filter,
+            "is_remote": is_remote,
+            "sort_by": sort_by,
+            "sort_order": sort_order
+        }
+
+        return FilteredJobSearchResponse(
+            success=True,
+            message=f"Found {total_count} filtered jobs",
+            total_count=total_count,
+            filtered_jobs=job_responses,
+            search_params=search_params,
+            available_dates=available_dates,
+            timestamp=datetime.now()
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error searching filtered jobs: {str(e)}")
+
+@app.get("/api/filtered-jobs/dates", response_model=List[FilteredJobDateRange])
+async def get_filtered_job_dates(db: Session = Depends(get_db)):
+    """Get available date ranges for filtered jobs."""
+    try:
+        from sqlalchemy import func, desc
+
+        # Get job counts by date
+        date_counts = db.query(
+            FilteredJobView.filter_date,
+            func.count(FilteredJobView.id).label('job_count')
+        ).group_by(FilteredJobView.filter_date).order_by(desc(FilteredJobView.filter_date)).limit(30).all()
+
+        ranges = []
+        for date_obj, count in date_counts:
+            ranges.append(FilteredJobDateRange(
+                start_date=str(date_obj),
+                end_date=str(date_obj),
+                job_count=count
+            ))
+
+        return ranges
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting filtered job dates: {str(e)}")
+
+@app.get("/filteredjobs")
+async def filtered_jobs_page():
+    """Serve the filtered jobs UI page"""
+    return FileResponse("../filtered-jobs.html")
 
 @app.on_event("shutdown")
 async def shutdown_event():

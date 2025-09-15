@@ -431,3 +431,51 @@ class UpdateReviewItemRequest(BaseModel):
 class CreateDailyReviewRequest(BaseModel):
     target_date: Optional[str] = None  # YYYY-MM-DD format, defaults to today
     force_recreate: bool = False
+
+# Filtered Job View Models
+class FilteredJobViewResponse(BaseModel):
+    id: str
+    scraped_job_id: str
+    scraping_run_id: str
+    filter_date: str  # YYYY-MM-DD format
+    relevance_score: float
+    enhanced_score: float
+    best_matching_keyword: Optional[str]
+    ai_relevance: Optional[str]
+    filter_criteria: Optional[Dict[str, Any]]
+    created_at: datetime
+
+    # Include the scraped job data
+    scraped_job: ScrapedJobResponse
+
+    class Config:
+        from_attributes = True
+
+class FilteredJobSearchRequest(BaseModel):
+    start_date: Optional[str] = None  # YYYY-MM-DD format
+    end_date: Optional[str] = None    # YYYY-MM-DD format
+    days_back: Optional[int] = 1      # Alternative to date range: get last N days
+    min_enhanced_score: Optional[float] = None
+    ai_relevance_filter: Optional[List[str]] = None  # ["Highly Relevant", "Somewhat Relevant"]
+    company_filter: Optional[str] = None
+    location_filter: Optional[str] = None
+    job_type_filter: Optional[str] = None
+    is_remote: Optional[bool] = None
+    limit: Optional[int] = 100
+    offset: Optional[int] = 0
+    sort_by: Optional[str] = "enhanced_score"  # "enhanced_score", "filter_date", "date_posted"
+    sort_order: Optional[str] = "desc"  # "asc", "desc"
+
+class FilteredJobSearchResponse(BaseModel):
+    success: bool
+    message: str
+    total_count: int
+    filtered_jobs: List[FilteredJobViewResponse]
+    search_params: Dict[str, Any]
+    available_dates: List[str]  # Available filter dates
+    timestamp: datetime
+
+class FilteredJobDateRange(BaseModel):
+    start_date: str
+    end_date: str
+    job_count: int
