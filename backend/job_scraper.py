@@ -129,6 +129,214 @@ class JobScrapingService:
 
         return None, None
 
+    def _extract_salary_from_description(self, description_text: str) -> tuple:
+        """
+        Extract salary range from job description text using smart pattern matching.
+        Returns (min_salary, max_salary) as integers or (None, None) if not found.
+        """
+        if not description_text:
+            return None, None
+
+        # Normalize text for easier pattern matching
+        text = description_text.lower()
+
+        # Look for salary range patterns in job descriptions
+        salary_range_patterns = [
+            # "salary range is $100,000 to $150,000"
+            r'salary.*?range.*?\$(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)\s*(?:to|and|-)\s*\$(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)',
+            # "compensation from $100k to $150k"
+            r'compensation.*?from.*?\$(\d{1,3})k.*?to.*?\$(\d{1,3})k',
+            # "pay range: $100,000 - $150,000"
+            r'pay.*?range.*?\$(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)\s*-\s*\$(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)',
+            # "between $100k and $150k"
+            r'between.*?\$(\d{1,3})k.*?and.*?\$(\d{1,3})k',
+            # "$100,000 to $150,000" (direct range)
+            r'\$(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)\s*(?:to|and|-)\s*\$(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)',
+            # "$100k - $150k" (K format)
+            r'\$(\d{1,3})k\s*-\s*\$(\d{1,3})k',
+        ]
+
+        for pattern in salary_range_patterns:
+            matches = re.finditer(pattern, text)
+            for match in matches:
+                try:
+                    groups = match.groups()
+                    if len(groups) >= 2 and groups[0] and groups[1]:
+                        # Clean and parse the salary values
+                        min_str = groups[0].replace(',', '').replace('.00', '')
+                        max_str = groups[1].replace(',', '').replace('.00', '')
+
+                        min_val = int(min_str)
+                        max_val = int(max_str)
+
+                        # Handle K format - check if the original match contained 'k'
+                        match_text = match.group().lower()
+                        if 'k' in match_text and min_val < 1000:
+                            min_val *= 1000
+                            max_val *= 1000
+
+                        # Sanity checks
+                        if min_val > max_val:
+                            min_val, max_val = max_val, min_val  # Swap if reversed
+
+                        # Reject unrealistic salaries
+                        if max_val > 3_000_000:  # Over 3M USD is likely an error
+                            continue
+                        if min_val < 20_000:  # Under 20K is likely not a full-time salary
+                            continue
+
+                        print(f"📝 Found salary range in description: {match.group()}")
+                        return min_val, max_val
+
+                except (ValueError, IndexError):
+                    continue
+
+        # If no range found, look for single salary and try to find the max nearby
+        single_patterns = [
+            r'salary.*?\$(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)',
+            r'compensation.*?\$(\d{1,3})k',
+            r'pay.*?\$(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)',
+        ]
+
+        for pattern in single_patterns:
+            matches = re.finditer(pattern, text)
+            for match in matches:
+                try:
+                    min_str = match.group(1).replace(',', '').replace('.00', '')
+                    min_val = int(min_str)
+
+                    # Handle K format
+                    match_text = match.group().lower()
+                    if 'k' in match_text and min_val < 1000:
+                        min_val *= 1000
+
+                    # Sanity check
+                    if min_val < 20_000 or min_val > 3_000_000:
+                        continue
+
+                    # Look for another salary number within the next 100 characters
+                    search_start = match.end()
+                    search_end = min(len(text), search_start + 100)
+                    remaining_text = text[search_start:search_end]
+
+                    # Search for another salary amount
+                    next_salary_patterns = [
+                        r'\$(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)',
+                        r'(\d{1,3})k',
+                        r'(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)(?:\s*(?:usd|dollars?))?',
+                    ]
+
+                    for next_pattern in next_salary_patterns:
+                        next_matches = re.finditer(next_pattern, remaining_text)
+                        for next_match in next_matches:
+                            try:
+                                max_str = next_match.group(1).replace(',', '').replace('.00', '')
+                                max_val = int(max_str)
+
+                                # Handle K format for max value
+                                next_match_text = next_match.group().lower()
+                                if 'k' in next_match_text and max_val < 1000:
+                                    max_val *= 1000
+
+                                # Ensure max is greater than min and reasonable
+                                if max_val > min_val and max_val <= 3_000_000:
+                                    print(f"📝 Found salary pair in description: ${min_val:,} and ${max_val:,}")
+                                    return min_val, max_val
+
+                            except (ValueError, IndexError):
+                                continue
+
+                    # If no max found, return just the min
+                    print(f"📝 Found single salary in description: ${min_val:,}")
+                    return min_val, None
+
+                except (ValueError, IndexError):
+                    continue
+
+        return None, None
+
+    def _find_max_salary_in_description(self, description: str, min_salary: int) -> int:
+        """
+        Find max salary in job description using min salary as anchor point.
+        Look for patterns like "from $120k to $180k" or "$120,000 - $180,000"
+        """
+        if not description or not min_salary:
+            return None
+
+        # Normalize the description
+        text = description.lower().replace(',', '')
+
+        # Convert min_salary to different formats for searching
+        min_k = min_salary // 1000  # e.g., 120000 -> 120
+        min_formatted = f"{min_salary:,}"  # e.g., 120000 -> "120,000"
+
+        # Look for the min salary in various formats in the description
+        min_patterns = [
+            f"${min_k}k",
+            f"${min_formatted.replace(',', '')}",
+            f"{min_k}k",
+            f"{min_salary}",
+            f"{min_k} k"
+        ]
+
+        found_min_position = -1
+        for pattern in min_patterns:
+            pos = text.find(pattern.lower().replace(',', ''))
+            if pos >= 0:
+                found_min_position = pos
+                break
+
+        if found_min_position == -1:
+            return None
+
+        # Search for max salary within next 100 characters after min salary
+        search_start = found_min_position
+        search_end = min(len(text), search_start + 100)
+        search_text = text[search_start:search_end]
+
+        # Look for salary numbers after the min salary
+        # Match various formats: $180k, $180000, 180k, 180000, 180 k, etc.
+        salary_patterns = [
+            r'\$(\d{1,3})k',               # $180k
+            r'\$(\d{2,3}(?:\d{3})*)',      # $180000
+            r'(\d{1,3})k',                 # 180k
+            r'(\d{1,3})\s*k',              # 180 k
+            r'\$(\d{1,3}(?:\d{3})*(?:\.\d{2})?)', # $180000.00
+            r'(\d{2,3}(?:\d{3})*)',        # 180000
+        ]
+
+        potential_max_salaries = []
+
+        for pattern in salary_patterns:
+            matches = re.finditer(pattern, search_text)
+            for match in matches:
+                try:
+                    value_str = match.group(1)
+                    value = int(value_str.replace('.', '').replace(',', ''))
+
+                    # Handle K format
+                    if 'k' in match.group():
+                        value *= 1000
+
+                    # Only consider values higher than min_salary
+                    if value > min_salary and value <= 3_000_000:  # Max 3M USD sanity check
+                        potential_max_salaries.append(value)
+
+                except (ValueError, IndexError):
+                    continue
+
+        # Return the first reasonable max salary found
+        if potential_max_salaries:
+            # Sort and take the first one (closest to min salary position)
+            potential_max_salaries.sort()
+            max_salary = potential_max_salaries[0]
+
+            # Additional sanity check: max should be reasonable compared to min
+            if max_salary > min_salary and max_salary < min_salary * 3:  # Not more than 3x the min
+                return max_salary
+
+        return None
+
     def fetch_linkedin_job_data(self, job_url: str) -> dict:
         """
         Attempt to fetch LinkedIn job description and salary information from job URL.
@@ -183,15 +391,47 @@ class JobScrapingService:
             # Search for salary patterns in the entire page text
             full_text = soup.get_text()
 
-            # Simple salary patterns
-            salary_patterns = [
-                r'\$\s*(\d{2,3}(?:,\d{3})*)\s*(?:-|to)\s*\$?\s*(\d{2,3}(?:,\d{3})*)',  # $120,000 - $180,000
-                r'(\d{2,3})k\s*(?:-|to)\s*(\d{2,3})k',  # 120k - 180k
-                r'\$\s*(\d{2,3}(?:,\d{3})*)',  # Single salary like $150,000
-                r'(\d{2,3})k(?:\s*per\s*year|\s*annually|/year|$)',  # 120k per year
+            # Debug: Show any text containing "$" and "K" to help identify missed patterns
+            dollar_k_patterns = re.findall(r'[^\n]*\$[^\n]*k[^\n]*', full_text, re.IGNORECASE)
+            if dollar_k_patterns:
+                print(f"🔍 Debug - Found {len(dollar_k_patterns)} lines with $...K patterns:")
+                for i, pattern in enumerate(dollar_k_patterns[:5]):  # Show first 5
+                    print(f"  {i+1}: {pattern.strip()}")
+                # Check specifically for decimal K patterns like $68.6K/yr - $151.1K/yr
+                decimal_k_patterns = re.findall(r'\$\d{1,3}\.\d+K[^\n]*', full_text, re.IGNORECASE)
+                if decimal_k_patterns:
+                    print(f"💡 Debug - Found {len(decimal_k_patterns)} decimal K patterns:")
+                    for i, pattern in enumerate(decimal_k_patterns[:3]):  # Show first 3
+                        print(f"  Decimal {i+1}: {pattern.strip()}")
+
+            # Prioritize range patterns over single values - search for ranges FIRST
+            range_patterns = [
+                # $68.6K/yr - $151.1K/yr (decimal K format with /yr) - case insensitive
+                r'\$(\d{1,3}(?:\.\d+)?)[kK]/yr\s*-\s*\$(\d{1,3}(?:\.\d+)?)[kK]/yr',
+                # $68.6K - $151.1K (decimal K format range) - case insensitive
+                r'\$(\d{1,3}(?:\.\d+)?)[kK]\s*-\s*\$(\d{1,3}(?:\.\d+)?)[kK]',
+                # $120,000 - $180,000 (full number range)
+                r'\$(\d{2,3}(?:,\d{3})*)\s*-\s*\$(\d{2,3}(?:,\d{3})*)',
+                # Also try with spaces: $68.6 K/yr - $151.1 K/yr
+                r'\$(\d{1,3}(?:\.\d+)?)\s*[kK]/yr\s*-\s*\$(\d{1,3}(?:\.\d+)?)\s*[kK]/yr',
+                r'\$(\d{1,3}(?:\.\d+)?)\s*[kK]\s*-\s*\$(\d{1,3}(?:\.\d+)?)\s*[kK]',
+                # Handle "from $X to $Y" format
+                r'from\s*\$(\d{1,3}(?:\.\d+)?)[kK].*?to\s*\$(\d{1,3}(?:\.\d+)?)[kK]',
+                # Handle malformed comma issues: $150,000 might show as $150/,000 or $150,,000
+                r'\$(\d{2,3})[/,]*(\d{3})\s*-\s*\$(\d{2,3})[/,]*(\d{3})',
             ]
 
-            for pattern in salary_patterns:
+            single_patterns = [
+                # Single salary patterns (only use if no ranges found) - case insensitive
+                r'\$(\d{1,3}(?:\.\d+)?)[kK]/yr',  # $120.5k/yr or $120K/yr
+                r'\$(\d{1,3}(?:\.\d+)?)[kK]',  # $120.5k or $120K
+                r'\$(\d{1,3}(?:\.\d+)?)\s*[kK]/yr',  # $120.5 K/yr
+                r'\$(\d{1,3}(?:\.\d+)?)\s*[kK]',  # $120.5 K
+                r'\$(\d{2,3}(?:,\d{3})*)',  # $150,000
+            ]
+
+            # First, search specifically for salary ranges
+            for pattern in range_patterns:
                 matches = re.finditer(pattern, full_text, re.IGNORECASE)
                 for match in matches:
                     # Get context around the match to verify it's salary related
@@ -202,38 +442,87 @@ class JobScrapingService:
                     # Check if context contains salary-related keywords
                     if any(word in context for word in ['salary', 'compensation', 'pay', 'annual', 'base', 'range']):
                         groups = match.groups()
-                        if len(groups) == 2 and groups[1]:  # Range found
-                            try:
-                                min_val = int(groups[0].replace(',', ''))
-                                max_val = int(groups[1].replace(',', ''))
+                        match_text = match.group().lower()
+                        print(f"🔍 RANGE match found: '{match.group()}' with groups: {groups}")
 
-                                # Handle k format
-                                if 'k' in match.group().lower():
+                        try:
+                            if len(groups) == 2 and groups[1]:  # Standard range found
+                                # Clean and handle decimal values
+                                min_clean = groups[0].replace(',', '').replace('/', '')
+                                max_clean = groups[1].replace(',', '').replace('/', '')
+                                min_val = int(float(min_clean))
+                                max_val = int(float(max_clean))
+
+                                # Handle k format - check if the match contains 'k'
+                                if 'k' in match_text:
                                     min_val *= 1000
                                     max_val *= 1000
 
-                                min_salary = min_val
-                                max_salary = max_val
-                                print(f"💰 Found salary range: ${min_salary:,} - ${max_salary:,}")
-                                break
-                            except (ValueError, IndexError):
-                                continue
-                        elif len(groups) >= 1:  # Single salary found
-                            try:
-                                val = int(groups[0].replace(',', ''))
-                                if 'k' in match.group().lower():
-                                    val *= 1000
-                                min_salary = val
-                                print(f"💰 Found salary: ${min_salary:,}")
-                                break
-                            except (ValueError, IndexError):
+                            elif len(groups) == 4 and groups[1] and groups[3]:  # Malformed comma pattern: $150[/,]*000 - $180[/,]*000
+                                # Reconstruct the full numbers from separated parts
+                                min_val = int(groups[0] + groups[1])  # e.g., "150" + "000" = 150000
+                                max_val = int(groups[2] + groups[3])  # e.g., "180" + "000" = 180000
+                            else:
                                 continue
 
-                if min_salary:  # Found salary, stop searching
+                            # Common processing for both patterns
+                            min_salary = min_val
+                            max_salary = max_val
+                            print(f"💰 Found salary range: ${min_salary:,} - ${max_salary:,}")
+                            # Found a range, stop searching
+                            break
+
+                        except (ValueError, IndexError):
+                            continue
+                # If we found a range, don't continue to single patterns
+                if min_salary and max_salary:
                     break
 
+            # Only search for single values if no range was found
             if not min_salary:
-                print(f"⚠️  No salary found on LinkedIn page")
+                for pattern in single_patterns:
+                    matches = re.finditer(pattern, full_text, re.IGNORECASE)
+                    for match in matches:
+                        # Get context around the match to verify it's salary related
+                        start = max(0, match.start() - 100)
+                        end = min(len(full_text), match.end() + 100)
+                        context = full_text[start:end].lower()
+
+                        # Check if context contains salary-related keywords
+                        if any(word in context for word in ['salary', 'compensation', 'pay', 'annual', 'base', 'range']):
+                            groups = match.groups()
+                            match_text = match.group().lower()
+                            print(f"🔍 SINGLE match found: '{match.group()}' with groups: {groups}")
+
+                            if len(groups) >= 1 and groups[0]:  # Single salary found
+                                try:
+                                    # Handle decimal values by converting to float first, then int
+                                    val = int(float(groups[0].replace(',', '')))
+
+                                    # Handle k format
+                                    if 'k' in match_text:
+                                        val *= 1000
+
+                                    min_salary = val
+                                    print(f"💰 Found salary: ${min_salary:,}")
+                                    break
+                                except (ValueError, IndexError):
+                                    continue
+
+                    if min_salary:  # Found salary, stop searching
+                        break
+
+            # Fallback: Search in job description if no salary found in page
+            if not min_salary and description_text:
+                print(f"🔍 Fallback: Searching for salary in job description text...")
+                fallback_min, fallback_max = self._extract_salary_from_description(description_text)
+                if fallback_min:
+                    min_salary = fallback_min
+                    max_salary = fallback_max
+                    print(f"💰 Found salary in description: ${min_salary:,}" + (f" - ${max_salary:,}" if max_salary else ""))
+
+            if not min_salary:
+                print(f"⚠️  No salary found on LinkedIn page or description")
 
             result = {
                 "description": description_text,
@@ -259,6 +548,7 @@ class JobScrapingService:
         """
         Enrich LinkedIn jobs with descriptions and salary information fetched from their URLs.
         """
+        print(f"🔍 enrich_linkedin_jobs called with {len(jobs_data)} total jobs")
         enriched_jobs = []
         linkedin_count = 0
         enriched_count = 0
@@ -292,6 +582,20 @@ class JobScrapingService:
                         if (job_data['min_salary'] and not existing_min) or (job_data['max_salary'] and not existing_max):
                             salary_enriched_count += 1
                             print(f"💰 Enriched LinkedIn job salary: {job.get('title', '')[:50]}... (${job_data['min_salary']}-${job_data['max_salary']})")
+
+                        # If we have min but no max, try to extract max from description
+                        if job_data['min_salary'] and not job_data['max_salary'] and job.get('description'):
+                            max_from_desc = self._find_max_salary_in_description(job.get('description'), job_data['min_salary'])
+                            if max_from_desc:
+                                job['max_amount'] = max_from_desc
+                                print(f"📝 Found max salary in description: ${max_from_desc:,}")
+
+            # For all jobs (not just LinkedIn), if we have min salary but no max, try to extract from description
+            if job.get('min_amount') and not job.get('max_amount') and job.get('description'):
+                max_from_desc = self._find_max_salary_in_description(job.get('description'), job.get('min_amount'))
+                if max_from_desc:
+                    job['max_amount'] = max_from_desc
+                    print(f"📝 Found max salary in {job.get('site', 'unknown')} job description: ${max_from_desc:,}")
 
             enriched_jobs.append(job)
 
@@ -433,7 +737,8 @@ class JobScrapingService:
         final_jobs = list(unique_jobs.values())
 
         # Enrich LinkedIn jobs with descriptions
-        print(f"🔗 Enriching LinkedIn jobs with descriptions...")
+        linkedin_jobs = [job for job in final_jobs if job.get('site') == 'linkedin']
+        print(f"🔗 Enriching LinkedIn jobs with descriptions... ({len(linkedin_jobs)} LinkedIn jobs found)")
         final_jobs = self.enrich_linkedin_jobs(final_jobs)
 
         # Print analytics summary
