@@ -3628,7 +3628,7 @@ async def startup_event():
         # Start the automated scraping scheduler
         from scheduler import start_auto_scraping
         start_auto_scraping()
-        print("✅ Automated scraping scheduler started")
+        print("✅ Scheduler ready")
         
     except Exception as e:
         print(f"⚠️  Warning during startup: {e}")

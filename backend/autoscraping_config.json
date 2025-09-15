@@ -24,5 +24,7 @@
   "exclude_executive": true,
   "executive_keywords": "president, director, vp, vice president, chief, head of",
   "seniority_filter": "",
-  "default_locations": "USA"
+  "default_locations": "USA",
+  "location": "san jose",
+  "distance": 50
 }

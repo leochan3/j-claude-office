@@ -77,13 +77,65 @@ class JobScrapingService:
         
         return min_years, max_years
 
-    def fetch_linkedin_job_description(self, job_url: str) -> str:
+    def _parse_salary_range(self, salary_text: str) -> tuple:
         """
-        Attempt to fetch LinkedIn job description from job URL.
-        Returns empty string if unable to fetch.
+        Parse salary range from text.
+        Returns (min_salary, max_salary) as integers or (None, None) if not found.
+        """
+        if not salary_text:
+            return None, None
+
+        # Remove common currency symbols and clean text
+        text = salary_text.replace(',', '').replace('$', '').replace('USD', '').lower()
+
+        # Look for salary patterns
+        patterns = [
+            # $80,000 - $120,000
+            r'(\d{2,3})(?:,?000)?\s*(?:-|to)\s*(\d{2,3})(?:,?000)?',
+            # $80k - $120k
+            r'(\d{2,3})k\s*(?:-|to)\s*(\d{2,3})k',
+            # 80k-120k
+            r'(\d{2,3})k?\s*-\s*(\d{2,3})k',
+            # $80,000 to $120,000
+            r'(\d{2,3})(?:,?000)?\s+to\s+(\d{2,3})(?:,?000)?',
+            # Single salary: $100,000 or 100k
+            r'(\d{2,3})(?:,?000|k)',
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, text)
+            if match:
+                try:
+                    if len(match.groups()) == 2:
+                        # Range found
+                        min_val = int(match.group(1))
+                        max_val = int(match.group(2))
+
+                        # Convert to full amounts if needed
+                        if 'k' in text or min_val < 1000:
+                            min_val *= 1000
+                            max_val *= 1000
+
+                        return min_val, max_val
+                    else:
+                        # Single value found
+                        val = int(match.group(1))
+                        if 'k' in text or val < 1000:
+                            val *= 1000
+                        # Return as min salary, no max
+                        return val, None
+                except (ValueError, IndexError):
+                    continue
+
+        return None, None
+
+    def fetch_linkedin_job_data(self, job_url: str) -> dict:
+        """
+        Attempt to fetch LinkedIn job description and salary information from job URL.
+        Returns dict with description, min_salary, max_salary fields.
         """
         if not job_url or 'linkedin.com' not in job_url:
-            return ""
+            return {"description": "", "min_salary": None, "max_salary": None}
 
         try:
             # Add delay to be respectful to LinkedIn
@@ -123,48 +175,136 @@ class JobScrapingService:
                 # Limit length to prevent token overflow
                 if len(description_text) > 2000:
                     description_text = description_text[:2000] + "..."
+
+            # Try to extract salary information from LinkedIn page
+            min_salary = None
+            max_salary = None
+
+            # Search for salary patterns in the entire page text
+            full_text = soup.get_text()
+
+            # Simple salary patterns
+            salary_patterns = [
+                r'\$\s*(\d{2,3}(?:,\d{3})*)\s*(?:-|to)\s*\$?\s*(\d{2,3}(?:,\d{3})*)',  # $120,000 - $180,000
+                r'(\d{2,3})k\s*(?:-|to)\s*(\d{2,3})k',  # 120k - 180k
+                r'\$\s*(\d{2,3}(?:,\d{3})*)',  # Single salary like $150,000
+                r'(\d{2,3})k(?:\s*per\s*year|\s*annually|/year|$)',  # 120k per year
+            ]
+
+            for pattern in salary_patterns:
+                matches = re.finditer(pattern, full_text, re.IGNORECASE)
+                for match in matches:
+                    # Get context around the match to verify it's salary related
+                    start = max(0, match.start() - 100)
+                    end = min(len(full_text), match.end() + 100)
+                    context = full_text[start:end].lower()
+
+                    # Check if context contains salary-related keywords
+                    if any(word in context for word in ['salary', 'compensation', 'pay', 'annual', 'base', 'range']):
+                        groups = match.groups()
+                        if len(groups) == 2 and groups[1]:  # Range found
+                            try:
+                                min_val = int(groups[0].replace(',', ''))
+                                max_val = int(groups[1].replace(',', ''))
+
+                                # Handle k format
+                                if 'k' in match.group().lower():
+                                    min_val *= 1000
+                                    max_val *= 1000
+
+                                min_salary = min_val
+                                max_salary = max_val
+                                print(f"💰 Found salary range: ${min_salary:,} - ${max_salary:,}")
+                                break
+                            except (ValueError, IndexError):
+                                continue
+                        elif len(groups) >= 1:  # Single salary found
+                            try:
+                                val = int(groups[0].replace(',', ''))
+                                if 'k' in match.group().lower():
+                                    val *= 1000
+                                min_salary = val
+                                print(f"💰 Found salary: ${min_salary:,}")
+                                break
+                            except (ValueError, IndexError):
+                                continue
+
+                if min_salary:  # Found salary, stop searching
+                    break
+
+            if not min_salary:
+                print(f"⚠️  No salary found on LinkedIn page")
+
+            result = {
+                "description": description_text,
+                "min_salary": min_salary,
+                "max_salary": max_salary
+            }
+
+            if description_text:
                 print(f"✅ Fetched LinkedIn description ({len(description_text)} chars)")
-                return description_text
-            else:
-                print(f"⚠️  No description found in LinkedIn page")
-                return ""
+            if min_salary or max_salary:
+                print(f"✅ Fetched LinkedIn salary: {min_salary}-{max_salary}")
+
+            return result
 
         except requests.RequestException as e:
-            print(f"⚠️  Failed to fetch LinkedIn job description: {e}")
-            return ""
+            print(f"⚠️  Failed to fetch LinkedIn job data: {e}")
+            return {"description": "", "min_salary": None, "max_salary": None}
         except Exception as e:
             print(f"⚠️  Error parsing LinkedIn job page: {e}")
-            return ""
+            return {"description": "", "min_salary": None, "max_salary": None}
 
     def enrich_linkedin_jobs(self, jobs_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Enrich LinkedIn jobs with descriptions fetched from their URLs.
+        Enrich LinkedIn jobs with descriptions and salary information fetched from their URLs.
         """
         enriched_jobs = []
         linkedin_count = 0
         enriched_count = 0
+        salary_enriched_count = 0
 
         for job in jobs_data:
-            if job.get('site') == 'linkedin' and not job.get('description'):
+            # Process all LinkedIn jobs - enrich description if missing, always try to enrich salary
+            if job.get('site') == 'linkedin':
                 linkedin_count += 1
                 job_url = job.get('job_url', '')
                 if job_url:
-                    description = self.fetch_linkedin_job_description(job_url)
-                    if description:
-                        job['description'] = description
+                    existing_min = job.get('min_amount')
+                    existing_max = job.get('max_amount')
+                    print(f"🔍 Processing LinkedIn job: {job.get('title', '')[:50]}... (has_desc: {bool(job.get('description'))}, existing_salary: ${existing_min}-${existing_max})")
+                    job_data = self.fetch_linkedin_job_data(job_url)
+
+                    # Update description if empty
+                    if job_data['description'] and not job.get('description'):
+                        job['description'] = job_data['description']
                         enriched_count += 1
-                        print(f"📝 Enriched LinkedIn job: {job.get('title', '')[:50]}...")
+                        print(f"📝 Enriched LinkedIn job description: {job.get('title', '')[:50]}...")
+
+                    # Update salary information if found (prioritize scraped data)
+                    if job_data['min_salary'] or job_data['max_salary']:
+                        if job_data['min_salary'] and not job.get('min_amount'):
+                            job['min_amount'] = job_data['min_salary']
+                        if job_data['max_salary'] and not job.get('max_amount'):
+                            job['max_amount'] = job_data['max_salary']
+
+                        # Only count as enriched if we actually added salary data
+                        if (job_data['min_salary'] and not existing_min) or (job_data['max_salary'] and not existing_max):
+                            salary_enriched_count += 1
+                            print(f"💰 Enriched LinkedIn job salary: {job.get('title', '')[:50]}... (${job_data['min_salary']}-${job_data['max_salary']})")
 
             enriched_jobs.append(job)
 
         if linkedin_count > 0:
             print(f"🔗 LinkedIn enrichment: {enriched_count}/{linkedin_count} jobs enhanced with descriptions")
+            if salary_enriched_count > 0:
+                print(f"💰 LinkedIn salary enrichment: {salary_enriched_count}/{linkedin_count} jobs enhanced with salary data")
 
         return enriched_jobs
 
     async def scrape_company_jobs(
-        self, 
-        company_name: str, 
+        self,
+        company_name: str,
         search_terms: List[str] = None,
         sites: List[str] = None,
         locations: List[str] = None,

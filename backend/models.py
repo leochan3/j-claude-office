@@ -343,7 +343,6 @@ class BulkScrapingRequest(BaseModel):
     job_types: Optional[List[str]] = []  # Job types to filter by
     days_old: Optional[int] = None  # Alternative to hours_old for consistency
     is_remote: Optional[bool] = None  # Remote job preference
-    location: Optional[str] = None  # Single location (for backward compatibility)
 
 # Comprehensive Search Terms Models
 class ComprehensiveTermsCreate(BaseModel):

@@ -411,6 +411,25 @@
                     <div class="help-text">Jobs containing these words will be filtered out</div>
                 </div>
 
+                <div class="form-group">
+                    <label for="location">Location</label>
+                    <input type="text" id="location" placeholder="San Francisco, CA">
+                    <div class="help-text">City, state or country to search jobs in</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="distance">Distance (miles)</label>
+                    <select id="distance">
+                        <option value="0">Exact location only</option>
+                        <option value="5">Within 5 miles</option>
+                        <option value="10">Within 10 miles</option>
+                        <option value="25" selected>Within 25 miles</option>
+                        <option value="50">Within 50 miles</option>
+                        <option value="100">Within 100 miles</option>
+                    </select>
+                    <div class="help-text">Search radius from the specified location</div>
+                </div>
+
                 <!-- Hidden fields with default values -->
                 <input type="hidden" id="minRelevanceScore" value="60">
                 <input type="hidden" id="daysOld" value="7">
@@ -693,6 +712,8 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                 // Use default sites instead of form input
                 config.sites = ['indeed', 'linkedin'];
                 config.exclude_keywords = document.getElementById('excludeKeywords')?.value || '';
+                config.location = document.getElementById('location')?.value || '';
+                config.distance = parseInt(document.getElementById('distance')?.value) || 25;
                 config.min_relevance_score = 60;
                 config.days_old = 7;
                 config.ai_enabled = document.getElementById('aiEnabled')?.checked || false;
@@ -741,6 +762,8 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
             document.getElementById('scheduleTime').value = config.schedule_time;
             // Only populate visible form elements (hidden elements don't need population)
             document.getElementById('excludeKeywords').value = config.exclude_keywords || '';
+            document.getElementById('location').value = config.location || '';
+            document.getElementById('distance').value = config.distance || 25;
             document.getElementById('aiEnabled').checked = config.ai_enabled;
             document.getElementById('aiModel').value = config.ai_model || 'gpt-4.1-mini';
             document.getElementById('aiPrompt').value = config.ai_prompt || '';

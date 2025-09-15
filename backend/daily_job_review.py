@@ -43,7 +43,7 @@ class DailyJobReviewManager:
         # Load configuration from environment or file
         self._load_configuration()
         
-        logger.info(f"DailyJobReviewManager initialized with config: {self.config}")
+        logger.info("DailyJobReviewManager ready")
     
     def _load_configuration(self):
         """Load configuration from environment variables or config files."""
