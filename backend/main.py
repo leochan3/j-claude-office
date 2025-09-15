@@ -4014,6 +4014,140 @@ async def filtered_jobs_page():
     """Serve the filtered jobs UI page"""
     return FileResponse("../filtered-jobs.html")
 
+@app.post("/api/filtered-jobs/process-existing")
+async def process_existing_scraped_jobs(
+    days_back: int = Query(7, description="Process jobs from last N days"),
+    min_relevance_score: float = Query(60, description="Minimum relevance score"),
+    db: Session = Depends(get_db)
+):
+    """Process existing scraped jobs through AI filtering and populate filtered_job_views table."""
+    try:
+        from datetime import date, timedelta
+        from sqlalchemy import and_, or_
+        import pandas as pd
+        
+        # Get scraped jobs from the last N days
+        cutoff_date = date.today() - timedelta(days=days_back)
+        scraped_jobs = db.query(ScrapedJob).filter(
+            and_(
+                ScrapedJob.is_active == True,
+                ScrapedJob.date_scraped >= cutoff_date
+            )
+        ).all()
+        
+        if not scraped_jobs:
+            return {
+                "success": True,
+                "message": f"No scraped jobs found in the last {days_back} days",
+                "processed_count": 0,
+                "filtered_count": 0
+            }
+        
+        print(f"🔄 Processing {len(scraped_jobs)} scraped jobs for filtering...")
+        
+        # Use the scheduler's filtering logic
+        from scheduler import AutoScrapingScheduler
+        scheduler = AutoScrapingScheduler()
+        
+        # Convert to DataFrame and calculate relevance scores
+        jobs_data = []
+        search_terms = ["software engineer", "product manager", "developer", "engineer"]  # Default search terms
+        
+        for job in scraped_jobs:
+            # Calculate relevance score for each search term
+            job_dict = {
+                'title': job.title,
+                'company': job.company,
+                'location': job.location or 'Not specified',
+                'description': job.description or '',
+                'job_type': job.job_type or 'Not specified',
+                'is_remote': job.is_remote or False,
+                'min_amount': job.min_amount,
+                'max_amount': job.max_amount,
+                'currency': job.currency or 'USD',
+                'date_posted': job.date_posted.isoformat() if job.date_posted else None,
+                'scraped_job_id': job.id,
+                'scraping_run_id': job.scraping_run_id
+            }
+            
+            # Calculate relevance score using the best matching search term
+            best_score = 0
+            best_keyword = ""
+            for search_term in search_terms:
+                score = scheduler.calculate_relevance_score(job_dict, search_term)
+                if score > best_score:
+                    best_score = score
+                    best_keyword = search_term
+            
+            # Get AI relevance evaluation
+            ai_relevance = scheduler.evaluate_job_relevance_with_ai(job.title, job.description)
+            
+            jobs_data.append({
+                'Title': job.title,
+                'Company': job.company,
+                'Location': job.location or 'Not specified',
+                'Job_URL': job.job_url,
+                'Description': job.description or '',
+                'Job_Type': job.job_type or 'Not specified',
+                'Is_Remote': job.is_remote or False,
+                'Min_Salary': job.min_amount,
+                'Max_Salary': job.max_amount,
+                'Currency': job.currency if job.currency else 'USD',
+                'Date_Posted': job.date_posted.isoformat() if job.date_posted else None,
+                'Scraped_Job_ID': job.id,
+                'Scraping_Run_ID': job.scraping_run_id,
+                'Relevance_Score': best_score,
+                'Best_Matching_Keyword': best_keyword,
+                'AI_Relevance': ai_relevance
+            })
+        
+        df = pd.DataFrame(jobs_data)
+        
+        # Create a temporary CSV file for processing
+        import tempfile
+        import os
+        temp_csv = os.path.join(tempfile.gettempdir(), f"temp_scraped_jobs_{date.today().strftime('%Y%m%d')}.csv")
+        df.to_csv(temp_csv, index=False)
+        
+        try:
+            # Process through the filtering pipeline
+            filtered_csv = scheduler.create_filtered_jobs_csv(temp_csv)
+            
+            if filtered_csv and os.path.exists(filtered_csv):
+                # Load the filtered results
+                df_filtered = pd.read_csv(filtered_csv)
+                
+                # Save to database
+                scheduler.save_filtered_jobs_to_database(df_filtered)
+                
+                # Clean up temp files
+                os.remove(temp_csv)
+                os.remove(filtered_csv)
+                
+                return {
+                    "success": True,
+                    "message": f"Successfully processed {len(scraped_jobs)} scraped jobs",
+                    "processed_count": len(scraped_jobs),
+                    "filtered_count": len(df_filtered),
+                    "filtered_csv": filtered_csv
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": "No jobs met the filtering criteria",
+                    "processed_count": len(scraped_jobs),
+                    "filtered_count": 0
+                }
+                
+        except Exception as e:
+            # Clean up temp file
+            if os.path.exists(temp_csv):
+                os.remove(temp_csv)
+            raise e
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing existing jobs: {str(e)}")
+
 @app.on_event("shutdown")
 async def shutdown_event():
     """Clean shutdown of the application"""

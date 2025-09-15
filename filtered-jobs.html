@@ -820,9 +820,12 @@
         function formatSalary(min, max, currency = 'USD') {
             if (!min && !max) return 'Salary not specified';
 
+            // Handle null/undefined currency values
+            const safeCurrency = currency || 'USD';
+            
             const formatter = new Intl.NumberFormat('en-US', {
                 style: 'currency',
-                currency: currency,
+                currency: safeCurrency,
                 maximumFractionDigits: 0
             });
 

@@ -277,6 +277,10 @@ class ScrapedJobResponse(BaseModel):
     max_experience_years: Optional[int]
     target_company_id: Optional[str]
     
+    @validator('currency', pre=True)
+    def ensure_currency_default(cls, v):
+        return v if v is not None else 'USD'
+    
     class Config:
         from_attributes = True
 
