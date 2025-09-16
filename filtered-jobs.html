@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Filtered Jobs | JobSpy Dashboard</title>
+    <title>Nebula Console | Insight Dashboard</title>
     <style>
         * {
             margin: 0;
@@ -516,8 +516,8 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>Job Opportunities Dashboard</h1>
-            <p>AI-filtered job opportunities tailored to your preferences</p>
+            <h1>Nebula Console</h1>
+            <p>AI-curated insights tailored to your preferences</p>
             <div style="margin-top: 16px;">
                 <a href="/savedjobs" class="btn btn-secondary" style="text-decoration: none;">📚 View My Saved Jobs</a>
             </div>
@@ -1090,6 +1090,8 @@
         }
 
         async function saveJobToAPI(job) {
+            const bearer = localStorage.getItem('authToken');
+            const isAuthenticated = !!bearer;
             const jobData = {
                 job_data: {
                     title: job.scraped_job.title,
@@ -1109,11 +1111,17 @@
                 tags: ['filtered', 'ai-scored']
             };
 
-            const response = await fetch('/save-job', {
+            const endpoint = isAuthenticated ? '/user/save-job' : '/save-job';
+            const headers = {
+                'Content-Type': 'application/json'
+            };
+            if (isAuthenticated) {
+                headers['Authorization'] = `Bearer ${localStorage.getItem('auth_token')}`;
+            }
+
+            const response = await fetch(endpoint, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers,
                 body: JSON.stringify(jobData)
             });
 

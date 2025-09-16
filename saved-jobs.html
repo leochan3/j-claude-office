@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>My Saved Jobs | JobSpy Dashboard</title>
+    <title>Saved Items | Account Console</title>
     <style>
         * {
             margin: 0;
@@ -455,13 +455,13 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>My Saved Jobs</h1>
-            <p>Manage your saved job opportunities</p>
+            <h1>Saved Items</h1>
+            <p>Manage your personal collection</p>
         </div>
 
         <!-- Authentication Section -->
         <div id="authSection" class="auth-section">
-            <h2>Please Login to View Your Saved Jobs</h2>
+            <h2>Please login to view your saved items</h2>
             <form id="loginForm">
                 <div class="form-group">
                     <label for="username">Username</label>
@@ -472,6 +472,24 @@
                     <input type="password" id="password" name="password" required>
                 </div>
                 <button type="submit" class="btn">Login</button>
+            </form>
+
+            <div style="margin: 16px 0; color: #94a3b8;">— or —</div>
+
+            <form id="registerForm">
+                <div class="form-group">
+                    <label for="reg_username">Username</label>
+                    <input type="text" id="reg_username" name="reg_username" required>
+                </div>
+                <div class="form-group">
+                    <label for="reg_email">Email</label>
+                    <input type="email" id="reg_email" name="reg_email" required>
+                </div>
+                <div class="form-group">
+                    <label for="reg_password">Password</label>
+                    <input type="password" id="reg_password" name="reg_password" required>
+                </div>
+                <button type="submit" class="btn btn-secondary">Register</button>
             </form>
         </div>
 
@@ -545,8 +563,8 @@
 
         <!-- Empty State -->
         <div id="emptyState" class="empty-state" style="display: none;">
-            <h3>No saved jobs found</h3>
-            <p>Start saving jobs from the <a href="/filteredjobs" style="color: #3b82f6;">Job Opportunities Dashboard</a> to see them here.</p>
+            <h3>No saved items found</h3>
+            <p>Start saving from the <a href="/filteredjobs" style="color: #3b82f6;">insights console</a> to see them here.</p>
         </div>
 
         <!-- Pagination -->
@@ -580,6 +598,8 @@
         function setupEventListeners() {
             // Login form
             document.getElementById('loginForm').addEventListener('submit', handleLogin);
+            // Register form
+            document.getElementById('registerForm').addEventListener('submit', handleRegister);
             
             // Logout button
             document.getElementById('logoutBtn').addEventListener('click', handleLogout);
@@ -624,14 +644,12 @@
 
         async function checkAuthStatus() {
             // Check if user is already logged in (you might want to implement proper session management)
-            const token = localStorage.getItem('authToken');
+            const token = localStorage.getItem('auth_token');
             if (token) {
                 // Verify token with backend
                 try {
-                    const response = await fetch('/user/profile', {
-                        headers: {
-                            'Authorization': `Bearer ${token}`
-                        }
+                    const response = await fetch('/auth/me', {
+                        headers: { 'Authorization': token ? `Bearer ${token}` : '' }
                     });
                     if (response.ok) {
                         const userData = await response.json();
@@ -639,10 +657,10 @@
                         showUserInterface();
                         loadSavedJobs();
                     } else {
-                        localStorage.removeItem('authToken');
+                        localStorage.removeItem('auth_token');
                     }
                 } catch (error) {
-                    localStorage.removeItem('authToken');
+                    localStorage.removeItem('auth_token');
                 }
             }
         }
@@ -654,7 +672,7 @@
             const password = document.getElementById('password').value;
 
             try {
-                const response = await fetch('/user/login', {
+                const response = await fetch('/auth/login', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -664,8 +682,8 @@
 
                 const data = await response.json();
                 
-                if (data.success) {
-                    localStorage.setItem('authToken', data.token);
+                if (data.access_token) {
+                    localStorage.setItem('auth_token', data.access_token);
                     currentUser = data.user;
                     showUserInterface();
                     loadSavedJobs();
@@ -678,8 +696,45 @@
             }
         }
 
+        async function handleRegister(event) {
+            event.preventDefault();
+            const username = document.getElementById('reg_username').value;
+            const email = document.getElementById('reg_email').value;
+            const password = document.getElementById('reg_password').value;
+
+            try {
+                const res = await fetch('/auth/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, email, password })
+                });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    throw new Error(err.detail || err.message || 'Registration failed');
+                }
+
+                // Auto-login after registration
+                const loginRes = await fetch('/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                const data = await loginRes.json();
+                if (data.access_token) {
+                    localStorage.setItem('auth_token', data.access_token);
+                    currentUser = data.user;
+                    showUserInterface();
+                    loadSavedJobs();
+                } else {
+                    throw new Error('Auto-login failed');
+                }
+            } catch (e) {
+                showError(e.message || 'Registration failed');
+            }
+        }
+
         function handleLogout() {
-            localStorage.removeItem('authToken');
+            localStorage.removeItem('auth_token');
             currentUser = null;
             showAuthInterface();
         }
@@ -725,10 +780,9 @@
                     }
                 });
 
+                const raw = localStorage.getItem('auth_token');
                 const response = await fetch(`/user/saved-jobs?${params}`, {
-                    headers: {
-                        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-                    }
+                    headers: { 'Authorization': raw ? `Bearer ${raw}` : '' }
                 });
 
                 const data = await response.json();
@@ -868,7 +922,7 @@
                     method: 'PUT',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                        'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
                     },
                     body: JSON.stringify({ [status]: true })
                 });
@@ -893,7 +947,7 @@
                 const response = await fetch(`/user/saved-job/${jobId}`, {
                     method: 'DELETE',
                     headers: {
-                        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                        'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
                     }
                 });
 
