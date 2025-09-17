@@ -519,7 +519,8 @@
             <h1>Nebula Console</h1>
             <p>AI-curated insights tailored to your preferences</p>
             <div style="margin-top: 16px;">
-                <a href="/savedjobs" class="btn btn-secondary" style="text-decoration: none;">📚 View My Saved Jobs</a>
+                <a href="/autoscraping" class="btn btn-secondary" style="text-decoration: none;">⚙️ Job Settings</a>
+                <a href="/savedjobs" class="btn btn-secondary" style="text-decoration: none; margin-left: 8px;">📚 View My Saved Jobs</a>
             </div>
         </div>
 
@@ -679,9 +680,12 @@
         // Initialize the page
         document.addEventListener('DOMContentLoaded', async function() {
             setupEventListeners();
-            await checkAuthStatus();
-            await loadSavedJobs();
-            loadFilteredJobs();
+            const isAuthenticated = await checkAuthStatus();
+            // Only load jobs and saved jobs if authenticated
+            if (isAuthenticated) {
+                await loadSavedJobs();
+                loadFilteredJobs();
+            }
         });
 
         function setupEventListeners() {
@@ -851,7 +855,21 @@
                     }
                 });
 
-                const response = await fetch(`/api/filtered-jobs?${params}`);
+                const token = localStorage.getItem('auth_token');
+                const headers = {};
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+
+                const response = await fetch(`/api/filtered-jobs?${params}`, { headers });
+
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        throw new Error('Please login to view filtered jobs');
+                    }
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
                 const data = await response.json();
 
                 if (!data.success) {
@@ -905,6 +923,7 @@
             currentJobs = jobs;
 
             console.log('Rendering jobs, saved job IDs:', savedJobIds.size);
+        console.log('Jobs to render:', jobs.length);
 
             if (jobs.length === 0) {
                 emptyState.style.display = 'block';
@@ -1220,6 +1239,10 @@
                     document.getElementById('userEmail').textContent = data.user.email || data.user.username;
                     showUserSection();
                     alert('Login successful! You can now save jobs to your personal collection.');
+
+                    // Load user's data after successful login
+                    await loadSavedJobs();
+                    loadFilteredJobs();
                 } else {
                     alert(data.message || 'Login failed');
                 }
@@ -1259,7 +1282,7 @@
                         const userData = await response.json();
                         document.getElementById('userEmail').textContent = userData.email || userData.username;
                         showUserSection();
-                        return;
+                        return true; // Indicate successful authentication
                     } else {
                         // Token is invalid, remove it
                         localStorage.removeItem('auth_token');
@@ -1270,6 +1293,7 @@
                 }
             }
             showLoginSection();
+            return false; // Indicate failed authentication
         }
 
         // Store current jobs for selection

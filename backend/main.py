@@ -481,13 +481,13 @@ async def login_user(user_login: UserLogin, db: Session = Depends(get_db)):
     return Token(
         access_token=access_token,
         token_type="bearer",
-        user=UserResponse.from_orm(user)
+        user=UserResponse.model_validate(user)
     )
 
 @app.get("/auth/me", response_model=UserResponse)
 async def get_current_user_info(current_user: User = Depends(get_current_active_user)):
     """Get current user information"""
-    return UserResponse.from_orm(current_user)
+    return UserResponse.model_validate(current_user)
 
 # Admin User Management Endpoints (Public for admin interfaces)
 @app.get("/admin/users-public")
@@ -3636,54 +3636,26 @@ async def startup_event():
 
 # Auto-Scraping Configuration API Endpoints
 @app.get("/api/autoscraping/config")
-async def get_autoscraping_config():
-    """Get current auto-scraping configuration"""
+async def get_autoscraping_config(current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
+    """Get current auto-scraping configuration for authenticated user"""
     try:
-        # Default configuration
-        default_config = {
-            "enabled": os.getenv("AUTO_SCRAPING_ENABLED", "true").lower() == "true",
-            "schedule_time": os.getenv("AUTO_SCRAPING_TIME", "02:00"),
-            "max_results": int(os.getenv("AUTO_SCRAPING_MAX_RESULTS", "100")),
-            "sites": os.getenv("DEFAULT_SCRAPING_SITES", "indeed,linkedin").split(","),
-            "companies": [],
-            "search_terms": os.getenv("AUTO_SCRAPING_SEARCH_TERMS", "").split(",") if os.getenv("AUTO_SCRAPING_SEARCH_TERMS") else ["software engineer", "product manager", "developer"],
-            "exclude_keywords": "",
-            "min_relevance_score": 60,
-            "days_old": int(os.getenv("DEFAULT_SCRAPING_DAYS_OLD", "7")),
-            "ai_enabled": bool(openai_client),
-            "ai_model": OPENAI_MODEL,
-            "ai_prompt": "Evaluate job relevance for product manager/engineer/software roles.\n\nRate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant, Irrelevant",
-            "target_roles": "product manager, engineer, software developer",
-            "email_enabled": os.getenv("EMAIL_NOTIFICATIONS_ENABLED", "false").lower() == "true",
-            "notification_email": os.getenv("NOTIFICATION_EMAIL", ""),
+        # Get user's configuration using the service
+        user_config = UserService.get_autoscraping_config_dict(db, current_user.id)
+
+        # Get companies from database
+        companies = db.query(TargetCompany).filter(TargetCompany.is_active == True).all()
+        user_config["companies"] = [{"name": c.name, "active": c.is_active} for c in companies]
+
+        # Add extra fields for compatibility
+        user_config.update({
             "include_filtered": True,
-            "email_on_failure": True,
             "exclude_executive": True,
             "executive_keywords": "president, director, vp, vice president, chief, head of",
             "seniority_filter": "",
-            "default_locations": os.getenv("DEFAULT_SCRAPING_LOCATION", "USA")
-        }
+            "default_locations": user_config.get("location", "USA")
+        })
 
-        # Try to load saved configuration from file
-        config_file = "autoscraping_config.json"
-        if os.path.exists(config_file):
-            try:
-                with open(config_file, 'r') as f:
-                    saved_config = json.load(f)
-                    # Merge saved config with defaults (saved config takes precedence)
-                    default_config.update(saved_config)
-            except Exception as e:
-                print(f"Error loading saved config: {e}")
-
-        # Get companies from database
-        db = SessionLocal()
-        try:
-            companies = db.query(TargetCompany).filter(TargetCompany.is_active == True).all()
-            default_config["companies"] = [{"name": c.name, "active": c.is_active} for c in companies]
-        finally:
-            db.close()
-
-        return {"success": True, "config": default_config}
+        return {"success": True, "config": user_config}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error loading configuration: {str(e)}")
 
@@ -3693,8 +3665,8 @@ async def autoscraping_config_page():
     return FileResponse("../autoscraping-config.html")
 
 @app.post("/api/autoscraping/config")
-async def save_autoscraping_config(config: dict):
-    """Save auto-scraping configuration"""
+async def save_autoscraping_config(config: dict, current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
+    """Save auto-scraping configuration for authenticated user"""
     try:
         # Validate required fields
         required_fields = ["enabled", "schedule_time", "max_results", "sites"]
@@ -3713,58 +3685,49 @@ async def save_autoscraping_config(config: dict):
         if not (10 <= config["max_results"] <= 1000):
             raise HTTPException(status_code=400, detail="Max results must be between 10 and 1000")
 
-        # Update companies in database if provided
+        # Update companies in database if provided (companies are still global)
         if "companies" in config and isinstance(config["companies"], list):
-            db = SessionLocal()
-            try:
-                # Get current company names from config
-                config_company_names = [company_data["name"] for company_data in config["companies"] if "name" in company_data]
+            # Get current company names from config
+            config_company_names = [company_data["name"] for company_data in config["companies"] if "name" in company_data]
 
-                # Get all existing companies from database
-                existing_companies = db.query(TargetCompany).all()
+            # Get all existing companies from database
+            existing_companies = db.query(TargetCompany).all()
 
-                # Remove companies that are no longer in the config
-                for existing_company in existing_companies:
-                    if existing_company.name not in config_company_names:
-                        db.delete(existing_company)
-                        print(f"🗑️ Removed company from database: {existing_company.name}")
+            # Remove companies that are no longer in the config
+            for existing_company in existing_companies:
+                if existing_company.name not in config_company_names:
+                    db.delete(existing_company)
+                    print(f"🗑️ Removed company from database: {existing_company.name}")
 
-                # Update existing companies or create new ones
-                for company_data in config["companies"]:
-                    if "name" in company_data:
-                        company = db.query(TargetCompany).filter(TargetCompany.name == company_data["name"]).first()
-                        if not company:
-                            # Create new company
-                            company = TargetCompany(
-                                name=company_data["name"],
-                                display_name=company_data["name"],
-                                is_active=company_data.get("active", True),
-                                preferred_sites=config.get("sites", ["indeed"]),
-                                search_terms=config.get("search_terms", []),
-                                location_filters=[config.get("default_locations", "USA")]
-                            )
-                            db.add(company)
-                            print(f"➕ Added new company to database: {company_data['name']}")
-                        else:
-                            # Update existing company
-                            company.is_active = company_data.get("active", True)
-                            print(f"🔄 Updated company in database: {company_data['name']}")
+            # Update existing companies or create new ones
+            for company_data in config["companies"]:
+                if "name" in company_data:
+                    company = db.query(TargetCompany).filter(TargetCompany.name == company_data["name"]).first()
+                    if not company:
+                        # Create new company
+                        company = TargetCompany(
+                            name=company_data["name"],
+                            display_name=company_data["name"],
+                            is_active=company_data.get("active", True),
+                            preferred_sites=config.get("sites", ["indeed"]),
+                            search_terms=config.get("search_terms", []),
+                            location_filters=[config.get("default_locations", "USA")]
+                        )
+                        db.add(company)
+                        print(f"➕ Added new company to database: {company_data['name']}")
+                    else:
+                        # Update existing company
+                        company.is_active = company_data.get("active", True)
+                        print(f"🔄 Updated company in database: {company_data['name']}")
 
-                db.commit()
-            except Exception as e:
-                db.rollback()
-                raise HTTPException(status_code=500, detail=f"Error updating companies: {str(e)}")
-            finally:
-                db.close()
+        # Save user-specific configuration to database (excluding companies)
+        config_to_save = {k: v for k, v in config.items() if k not in ["companies", "include_filtered", "exclude_executive", "executive_keywords", "seniority_filter", "default_locations"]}
 
-        # Save configuration to file (excluding companies, which are stored in database)
-        config_to_save = {k: v for k, v in config.items() if k != "companies"}
-        config_file = "autoscraping_config.json"
-        try:
-            with open(config_file, 'w') as f:
-                json.dump(config_to_save, f, indent=2)
-        except Exception as e:
-            print(f"Warning: Could not save config to file: {e}")
+        # Set the notification email to user's email if not provided
+        if not config_to_save.get("notification_email"):
+            config_to_save["notification_email"] = current_user.email
+
+        UserService.create_or_update_autoscraping_config(db, current_user.id, config_to_save)
 
         return {"success": True, "message": "Configuration saved successfully"}
     except HTTPException:
@@ -3802,7 +3765,7 @@ async def test_autoscraping_config(config: dict):
         return {"success": False, "message": f"Test failed: {str(e)}"}
 
 @app.post("/api/autoscraping/run")
-async def run_autoscraping_now(config: dict):
+async def run_autoscraping_now(config: dict, current_user: User = Depends(get_current_active_user)):
     """Run auto-scraping immediately with current configuration"""
     try:
         from scheduler import AutoScrapingScheduler
@@ -3832,7 +3795,8 @@ async def run_autoscraping_now(config: dict):
                 loop.run_until_complete(
                     scheduler.run_targeted_scraping(
                         target_company_names=company_names,
-                        custom_search_terms=search_terms
+                        custom_search_terms=search_terms,
+                        user_id=current_user.id
                     )
                 )
             except Exception as e:
@@ -3866,6 +3830,7 @@ async def search_filtered_jobs(
     offset: Optional[int] = Query(0, description="Offset for pagination"),
     sort_by: Optional[str] = Query("enhanced_score", description="Sort field"),
     sort_order: Optional[str] = Query("desc", description="Sort order"),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Get filtered jobs with optional date range and filtering."""
@@ -3873,8 +3838,8 @@ async def search_filtered_jobs(
         from sqlalchemy import and_, or_, desc, asc, func
         from datetime import date, timedelta
 
-        # Build base query
-        query = db.query(FilteredJobView).join(ScrapedJob)
+        # Build base query - filter by current user only
+        query = db.query(FilteredJobView).join(ScrapedJob).filter(FilteredJobView.user_id == current_user.id)
 
         # Handle date filtering
         if start_date and end_date:
@@ -3985,16 +3950,16 @@ async def search_filtered_jobs(
         raise HTTPException(status_code=500, detail=f"Error searching filtered jobs: {str(e)}")
 
 @app.get("/api/filtered-jobs/dates", response_model=List[FilteredJobDateRange])
-async def get_filtered_job_dates(db: Session = Depends(get_db)):
+async def get_filtered_job_dates(current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     """Get available date ranges for filtered jobs."""
     try:
         from sqlalchemy import func, desc
 
-        # Get job counts by date
+        # Get job counts by date for current user only
         date_counts = db.query(
             FilteredJobView.filter_date,
             func.count(FilteredJobView.id).label('job_count')
-        ).group_by(FilteredJobView.filter_date).order_by(desc(FilteredJobView.filter_date)).limit(30).all()
+        ).filter(FilteredJobView.user_id == current_user.id).group_by(FilteredJobView.filter_date).order_by(desc(FilteredJobView.filter_date)).limit(30).all()
 
         ranges = []
         for date_obj, count in date_counts:
@@ -4023,6 +3988,7 @@ async def saved_jobs_page():
 async def process_existing_scraped_jobs(
     days_back: int = Query(7, description="Process jobs from last N days"),
     min_relevance_score: float = Query(60, description="Minimum relevance score"),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Process existing scraped jobs through AI filtering and populate filtered_job_views table."""
@@ -4116,7 +4082,7 @@ async def process_existing_scraped_jobs(
         
         try:
             # Process through the filtering pipeline
-            filtered_csv = scheduler.create_filtered_jobs_csv(temp_csv)
+            filtered_csv = scheduler.create_filtered_jobs_csv(temp_csv, current_user.id)
             
             if filtered_csv and os.path.exists(filtered_csv):
                 # Load the filtered results

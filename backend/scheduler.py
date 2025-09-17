@@ -524,7 +524,7 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
             logger.error(f"Error in AI job relevance evaluation: {e}")
             return "AI Error"
 
-    def create_filtered_jobs_csv(self, original_csv_path: str) -> str:
+    def create_filtered_jobs_csv(self, original_csv_path: str, user_id: str = None) -> str:
         """
         Create a filtered and scored CSV based on relevance criteria.
 
@@ -610,7 +610,7 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
             df_filtered.to_csv(filtered_csv_filename, index=False)
 
             # Save filtered jobs to database
-            self.save_filtered_jobs_to_database(df_filtered)
+            self.save_filtered_jobs_to_database(df_filtered, user_id)
 
             # Log filtering summary
             logger.info(f"📋 FILTERING SUMMARY:")
@@ -634,12 +634,16 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
             logger.error(f"Error creating filtered CSV: {e}")
             return None
 
-    def save_filtered_jobs_to_database(self, df_filtered):
+    def save_filtered_jobs_to_database(self, df_filtered, user_id: str = None):
         """Save filtered jobs to the FilteredJobView table for the UI."""
         try:
             from database import FilteredJobView, ScrapedJob
             from datetime import date
             import json
+
+            if not user_id:
+                logger.warning("No user_id provided for filtered jobs - skipping database save")
+                return 0
 
             db = SessionLocal()
             try:
@@ -665,8 +669,9 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                             ).first()
 
                         if scraped_job:
-                            # Check if this job is already in FilteredJobView for today
+                            # Check if this job is already in FilteredJobView for today for this user
                             existing_entry = db.query(FilteredJobView).filter(
+                                FilteredJobView.user_id == user_id,
                                 FilteredJobView.scraped_job_id == scraped_job.id,
                                 FilteredJobView.filter_date == today
                             ).first()
@@ -682,6 +687,7 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
 
                                 # Create FilteredJobView entry
                                 filtered_view = FilteredJobView(
+                                    user_id=user_id,
                                     scraped_job_id=scraped_job.id,
                                     scraping_run_id=scraped_job.scraping_run_id,
                                     filter_date=today,
@@ -708,7 +714,131 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
         except Exception as e:
             logger.error(f"❌ Error saving filtered jobs to database: {e}")
 
-    def create_jobs_csv(self, scraping_run_id: int) -> str:
+    def create_filtered_jobs_from_existing(self, user_id: str, company_names: list, search_terms: list):
+        """Create filtered jobs for a user from existing scraped jobs when no new jobs were found."""
+        try:
+            from database import FilteredJobView, ScrapedJob
+            from datetime import date, datetime, timezone, timedelta
+            import pandas as pd
+
+            logger.info(f"🔄 Creating filtered jobs from existing data for user {user_id}")
+
+            db = SessionLocal()
+            try:
+                # Get recent jobs from the companies we're interested in (within last 7 days)
+                recent_date = datetime.now(timezone.utc) - timedelta(days=7)
+
+                # Build company filter
+                company_filters = []
+                for company_name in company_names:
+                    company_filters.append(ScrapedJob.company.ilike(f"%{company_name}%"))
+
+                # Get existing jobs for these companies
+                existing_jobs = db.query(ScrapedJob).filter(
+                    ScrapedJob.date_scraped >= recent_date,
+                    *company_filters
+                ).all()
+
+                if not existing_jobs:
+                    logger.info(f"🔍 No existing jobs found for companies: {', '.join(company_names)}")
+                    return 0
+
+                logger.info(f"🔍 Found {len(existing_jobs)} existing jobs to filter")
+
+                # Convert jobs to DataFrame for filtering
+                jobs_data = []
+                for job in existing_jobs:
+                    jobs_data.append({
+                        'id': job.id,
+                        'Company': job.company,
+                        'Title': job.title,
+                        'Location': job.location,
+                        'Description': job.description or '',
+                        'Salary_Min': job.salary_min,
+                        'Salary_Max': job.salary_max,
+                        'scraping_run_id': job.scraping_run_id
+                    })
+
+                if not jobs_data:
+                    return 0
+
+                df = pd.DataFrame(jobs_data)
+
+                # Apply scoring and filtering
+                scoring_keywords = [term for term in search_terms if term.lower() not in ['all']]
+
+                # Apply relevance scoring
+                df['Relevance_Score'] = df.apply(
+                    lambda row: self.calculate_relevance_score(row.to_dict(), scoring_keywords, 0),
+                    axis=1
+                )
+
+                # Apply AI scoring if available
+                if self.openai_client:
+                    df['AI_Relevance'] = df.apply(
+                        lambda row: self.evaluate_job_relevance_with_ai(row['Title'], row['Description']),
+                        axis=1
+                    )
+                else:
+                    df['AI_Relevance'] = 'Not Evaluated'
+
+                # Filter jobs (score >= 60, not irrelevant)
+                df_filtered = df[
+                    (df['Relevance_Score'] >= 60) &
+                    (df['AI_Relevance'] != 'Irrelevant')
+                ].copy()
+
+                logger.info(f"🎯 After filtering: {len(df_filtered)} jobs qualify")
+
+                if len(df_filtered) == 0:
+                    logger.info("📭 No jobs passed filtering criteria")
+                    return 0
+
+                # Save to FilteredJobView
+                today = date.today()
+                saved_count = 0
+
+                for _, row in df_filtered.iterrows():
+                    # Check if this job is already in FilteredJobView for this user today
+                    existing_entry = db.query(FilteredJobView).filter(
+                        FilteredJobView.user_id == user_id,
+                        FilteredJobView.scraped_job_id == row['id'],
+                        FilteredJobView.filter_date == today
+                    ).first()
+
+                    if not existing_entry:
+                        # Create new FilteredJobView entry
+                        filtered_view = FilteredJobView(
+                            user_id=user_id,
+                            scraped_job_id=row['id'],
+                            scraping_run_id=row['scraping_run_id'],
+                            filter_date=today,
+                            relevance_score=row['Relevance_Score'],
+                            enhanced_score=row['Relevance_Score'],  # Can be enhanced later
+                            best_matching_keyword=', '.join(scoring_keywords),
+                            ai_relevance=row['AI_Relevance'],
+                            filter_criteria={
+                                'min_score': 60,
+                                'search_terms': search_terms,
+                                'companies': company_names
+                            }
+                        )
+
+                        db.add(filtered_view)
+                        saved_count += 1
+
+                db.commit()
+                logger.info(f"✅ Created {saved_count} filtered job entries for user")
+                return saved_count
+
+            finally:
+                db.close()
+
+        except Exception as e:
+            logger.error(f"❌ Error creating filtered jobs from existing data: {e}")
+            return 0
+
+    def create_jobs_csv(self, scraping_run_id: int, user_id: str = None) -> str:
         """Create a CSV file with the jobs from the latest scraping run."""
         try:
             db = SessionLocal()
@@ -880,7 +1010,7 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                 filtered_csv_filename = None
                 if self.openai_client:
                     logger.info("🎯 Creating filtered and enhanced CSV...")
-                    filtered_csv_filename = self.create_filtered_jobs_csv(csv_filename)
+                    filtered_csv_filename = self.create_filtered_jobs_csv(csv_filename, user_id)
 
                 # Return both filenames as a tuple
                 return csv_filename, filtered_csv_filename
@@ -991,7 +1121,7 @@ Generated by JobSpy Automated Scraping System
         except Exception as e:
             logger.error(f"Failed to send notification email: {e}")
     
-    async def _send_completion_notification(self, scraping_run, company_names, search_terms, start_time, end_time, duration):
+    async def _send_completion_notification(self, scraping_run, company_names, search_terms, start_time, end_time, duration, user_id: str = None):
         """Send notification email when scraping completes successfully."""
         try:
             # Get job statistics from the scraping run
@@ -1027,13 +1157,17 @@ Generated by JobSpy Automated Scraping System
                 }
                 
                 # Create CSV export (both original and filtered versions)
-                csv_result = self.create_jobs_csv(scraping_run.id)
+                csv_result = self.create_jobs_csv(scraping_run.id, user_id)
                 if isinstance(csv_result, tuple):
                     csv_filename, filtered_csv_filename = csv_result
                 else:
                     # Backward compatibility if only one filename is returned
                     csv_filename = csv_result
                     filtered_csv_filename = None
+
+                # If no jobs were found in this scraping run, try to create filtered jobs from existing data
+                if user_id and total_jobs == 0:
+                    self.create_filtered_jobs_from_existing(user_id, company_names, search_terms)
 
                 # Create daily job review list
                 await self._create_daily_review_list(start_time, total_jobs)
@@ -1121,7 +1255,7 @@ Generated by JobSpy Automated Scraping System
         
         return should_scrape
     
-    async def run_targeted_scraping(self, target_company_names, custom_search_terms=None):
+    async def run_targeted_scraping(self, target_company_names, custom_search_terms=None, user_id: str = None):
         """Execute scraping for specific companies."""
         if not self.enabled:
             logger.info("Auto-scraping is disabled")
@@ -1236,7 +1370,7 @@ Generated by JobSpy Automated Scraping System
                     logger.info(f"🎯 Companies scraped: {len(company_names)}")
                     
                     # Send notification email with results
-                    await self._send_completion_notification(scraping_run, company_names, search_terms, start_time, end_time, duration)
+                    await self._send_completion_notification(scraping_run, company_names, search_terms, start_time, end_time, duration, user_id)
                 else:
                     logger.error("❌ Targeted scraping failed - no scraping run created")
                     
@@ -1336,7 +1470,7 @@ Generated by JobSpy Automated Scraping System
                 logger.info(f"   Scraping run ID: {scraping_run.id}")
                 
                 # Send notification email with results
-                await self._send_completion_notification(scraping_run, company_names, search_terms, start_time, end_time, duration)
+                await self._send_completion_notification(scraping_run, company_names, search_terms, start_time, end_time, duration, None)
                 
             finally:
                 db.close()

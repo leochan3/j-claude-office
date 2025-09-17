@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException, status
-from database import User, UserPreference, UserSavedJob, SearchHistory, SavedSearch
+from database import User, UserPreference, UserAutoscrapingConfig, UserSavedJob, SearchHistory, SavedSearch
 from models import (
     UserCreate, UserPreferencesCreate, UserPreferencesUpdate,
     SaveJobRequest, SavedJobUpdate, SavedSearchCreate, SavedSearchUpdate
@@ -323,3 +323,91 @@ class UserService:
         db.delete(db_search)
         db.commit()
         return True
+
+    # Autoscraping Configuration Methods
+    @staticmethod
+    def get_autoscraping_config(db: Session, user_id: str) -> Optional[UserAutoscrapingConfig]:
+        """Get user's autoscraping configuration."""
+        return db.query(UserAutoscrapingConfig).filter(
+            UserAutoscrapingConfig.user_id == user_id
+        ).first()
+
+    @staticmethod
+    def create_or_update_autoscraping_config(db: Session, user_id: str, config_data: dict) -> UserAutoscrapingConfig:
+        """Create or update user's autoscraping configuration."""
+        # Check if config already exists
+        existing_config = db.query(UserAutoscrapingConfig).filter(
+            UserAutoscrapingConfig.user_id == user_id
+        ).first()
+
+        if existing_config:
+            # Update existing config
+            for field, value in config_data.items():
+                if hasattr(existing_config, field):
+                    setattr(existing_config, field, value)
+            existing_config.updated_at = datetime.now(timezone.utc)
+            db.commit()
+            db.refresh(existing_config)
+            return existing_config
+        else:
+            # Create new config
+            new_config = UserAutoscrapingConfig(
+                user_id=user_id,
+                **config_data
+            )
+            db.add(new_config)
+            db.commit()
+            db.refresh(new_config)
+            return new_config
+
+    @staticmethod
+    def get_autoscraping_config_dict(db: Session, user_id: str) -> dict:
+        """Get user's autoscraping configuration as a dictionary with defaults."""
+        config = UserService.get_autoscraping_config(db, user_id)
+
+        if not config:
+            # Return default configuration if none exists
+            return {
+                "enabled": False,
+                "schedule_time": "02:00",
+                "max_results": 100,
+                "days_old": 7,
+                "sites": ["indeed", "linkedin"],
+                "search_terms": ["software engineer", "product manager"],
+                "exclude_keywords": "",
+                "location": "",
+                "distance": 25,
+                "companies": [],
+                "min_relevance_score": 60,
+                "ai_enabled": True,
+                "ai_model": "gpt-4.1-nano",
+                "ai_prompt": "Evaluate job relevance for product manager/engineer/software roles.\n\nRate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant, Irrelevant",
+                "target_roles": "product manager, engineer, software developer",
+                "email_enabled": True,
+                "notification_email": "",
+                "email_on_success": True,
+                "email_on_failure": True
+            }
+
+        # Convert database model to dictionary
+        return {
+            "enabled": config.enabled,
+            "schedule_time": config.schedule_time,
+            "max_results": config.max_results,
+            "days_old": config.days_old,
+            "sites": config.sites or ["indeed", "linkedin"],
+            "search_terms": config.search_terms or ["software engineer", "product manager"],
+            "exclude_keywords": config.exclude_keywords or "",
+            "location": config.location or "",
+            "distance": config.distance,
+            "companies": config.companies or [],
+            "min_relevance_score": config.min_relevance_score,
+            "ai_enabled": config.ai_enabled,
+            "ai_model": config.ai_model,
+            "ai_prompt": config.ai_prompt,
+            "target_roles": config.target_roles,
+            "email_enabled": config.email_enabled,
+            "notification_email": config.notification_email or "",
+            "email_on_success": config.email_on_success,
+            "email_on_failure": config.email_on_failure
+        }

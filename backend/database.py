@@ -37,6 +37,7 @@ class User(Base):
     
     # Relationships
     preferences = relationship("UserPreference", back_populates="user", uselist=False)
+    autoscraping_config = relationship("UserAutoscrapingConfig", back_populates="user", uselist=False)
     saved_jobs = relationship("UserSavedJob", back_populates="user")
     search_history = relationship("SearchHistory", back_populates="user")
 
@@ -78,6 +79,49 @@ class UserPreference(Base):
     
     # Relationships
     user = relationship("User", back_populates="preferences")
+
+class UserAutoscrapingConfig(Base):
+    __tablename__ = "user_autoscraping_configs"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, unique=True)
+
+    # Basic settings
+    enabled = Column(Boolean, default=False)
+    schedule_time = Column(String, default="02:00")  # HH:MM format
+    max_results = Column(Integer, default=100)
+    days_old = Column(Integer, default=7)
+
+    # Site and search configuration
+    sites = Column(JSON, default=["indeed", "linkedin"])  # List of job sites
+    search_terms = Column(JSON, default=["software engineer", "product manager"])  # Search keywords
+    exclude_keywords = Column(String, default="")  # Comma-separated exclusion keywords
+    location = Column(String, default="")  # Job location
+    distance = Column(Integer, default=25)  # Distance in miles/km
+
+    # Companies and filters
+    companies = Column(JSON, default=[])  # List of target companies
+    min_relevance_score = Column(Integer, default=60)  # Minimum relevance score
+
+    # AI configuration
+    ai_enabled = Column(Boolean, default=True)
+    ai_model = Column(String, default="gpt-4.1-nano")
+    ai_prompt = Column(Text, default="Evaluate job relevance for product manager/engineer/software roles.\n\nRate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant, Irrelevant")
+    target_roles = Column(String, default="product manager, engineer, software developer")
+
+    # Email notifications
+    email_enabled = Column(Boolean, default=True)
+    notification_email = Column(String)  # Email address for notifications
+    email_on_success = Column(Boolean, default=True)
+    email_on_failure = Column(Boolean, default=True)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    last_run_at = Column(DateTime(timezone=True))
+
+    # Relationships
+    user = relationship("User", back_populates="autoscraping_config")
 
 class UserSavedJob(Base):
     __tablename__ = "user_saved_jobs"
@@ -346,6 +390,9 @@ class FilteredJobView(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
 
+    # User association - each filtered job belongs to a specific user
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+
     # Reference to the original scraped job
     scraped_job_id = Column(String, ForeignKey("scraped_jobs.id"), nullable=False)
     scraping_run_id = Column(String, ForeignKey("scraping_runs.id"), nullable=False)
@@ -364,14 +411,16 @@ class FilteredJobView(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships
+    user = relationship("User")
     scraped_job = relationship("ScrapedJob", backref="filtered_views")
     scraping_run = relationship("ScrapingRun", backref="filtered_jobs")
 
     __table_args__ = (
-        # Ensure unique job per filter date (prevent duplicates)
-        Index('idx_filtered_job_date', 'scraped_job_id', 'filter_date', unique=True),
+        # Ensure unique job per user per filter date (prevent duplicates)
+        Index('idx_filtered_job_user_date', 'user_id', 'scraped_job_id', 'filter_date', unique=True),
         Index('idx_filter_date_score', 'filter_date', 'enhanced_score'),
         Index('idx_filter_date_ai', 'filter_date', 'ai_relevance'),
+        Index('idx_user_filter_date', 'user_id', 'filter_date'),
     )
 
 def create_job_hash(title: str, company: str, location: str, job_url: str = None) -> str:

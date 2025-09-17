@@ -343,9 +343,48 @@
     <div class="header">
         <h1>🤖 Auto-Scraping Configuration</h1>
         <p>Configure your personalized job scraping settings</p>
+
+        <!-- Navigation -->
+        <div style="margin-top: 20px;">
+            <a href="/filteredjobs" style="color: white; text-decoration: none; margin: 0 10px; padding: 8px 16px; background: rgba(255,255,255,0.2); border-radius: 20px;">📊 View Filtered Jobs</a>
+            <a href="/savedjobs" style="color: white; text-decoration: none; margin: 0 10px; padding: 8px 16px; background: rgba(255,255,255,0.2); border-radius: 20px;">💾 Saved Jobs</a>
+        </div>
     </div>
 
-    <div class="container">
+    <!-- Login Section -->
+    <div id="loginSection" class="container" style="display: none;">
+        <div class="config-card" style="max-width: 400px; margin: 0 auto;">
+            <h3 style="text-align: center; color: #333; margin-bottom: 20px;">🔐 Login Required</h3>
+            <p style="text-align: center; color: #666; margin-bottom: 20px;">Please login to access your auto-scraping settings</p>
+
+            <div class="form-group">
+                <label for="loginUsername">Username</label>
+                <input type="text" id="loginUsername" placeholder="Enter username">
+            </div>
+
+            <div class="form-group">
+                <label for="loginPassword">Password</label>
+                <input type="password" id="loginPassword" placeholder="Enter password">
+            </div>
+
+            <div style="text-align: center;">
+                <button class="btn btn-primary" onclick="handleLogin()">🔑 Login</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- User Section -->
+    <div id="userSection" class="container" style="display: none;">
+        <div style="text-align: center; margin-bottom: 20px;">
+            <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 10px; color: white;">
+                <span>Welcome, <strong id="userEmail"></strong>!</span>
+                <button onclick="handleLogout()" style="margin-left: 20px; padding: 5px 15px; background: rgba(255,255,255,0.2); border: none; border-radius: 15px; color: white; cursor: pointer;">Logout</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Configuration Content -->
+    <div id="configContent" class="container" style="display: none;">
         <div class="status-indicator" id="statusIndicator">
             <span id="statusIcon">⏸️</span>
             <span id="statusText">Auto-scraping is currently disabled</span>
@@ -671,10 +710,12 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                 console.log('Saving configuration:', config);
 
                 // Send to backend
+                const token = localStorage.getItem('auth_token');
                 fetch('/api/autoscraping/config', {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json'
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
                     },
                     body: JSON.stringify(config)
                 })
@@ -742,7 +783,17 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
         }
 
         function loadConfiguration() {
-            fetch('/api/autoscraping/config')
+            const token = localStorage.getItem('auth_token');
+            if (!token) {
+                console.log('No auth token, skipping config load');
+                return;
+            }
+
+            fetch('/api/autoscraping/config', {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            })
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
@@ -823,11 +874,17 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
 
             collectFormData();
 
+            const token = localStorage.getItem('auth_token');
+            const headers = {
+                'Content-Type': 'application/json'
+            };
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+
             fetch('/api/autoscraping/run', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers,
                 body: JSON.stringify(config)
             })
             .then(response => response.json())
@@ -853,8 +910,93 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
             }, 5000);
         }
 
-        // Load initial configuration when page loads
-        loadConfiguration();
+        // Authentication functions
+        async function handleLogin() {
+            const username = document.getElementById('loginUsername').value;
+            const password = document.getElementById('loginPassword').value;
+
+            if (!username || !password) {
+                showNotification('Please enter both username and password', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch('/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const data = await response.json();
+
+                if (data.access_token) {
+                    localStorage.setItem('auth_token', data.access_token);
+                    document.getElementById('userEmail').textContent = data.user.email || data.user.username;
+                    showUserSection();
+                    showNotification('Login successful!', 'success');
+                    loadConfiguration(); // Load user's configuration after login
+                } else {
+                    showNotification(data.message || 'Login failed', 'error');
+                }
+            } catch (error) {
+                console.error('Login error:', error);
+                showNotification('Login failed. Please try again.', 'error');
+            }
+        }
+
+        function handleLogout() {
+            localStorage.removeItem('auth_token');
+            showLoginSection();
+            document.getElementById('loginUsername').value = '';
+            document.getElementById('loginPassword').value = '';
+            showNotification('Logged out successfully', 'success');
+        }
+
+        function showLoginSection() {
+            document.getElementById('loginSection').style.display = 'block';
+            document.getElementById('userSection').style.display = 'none';
+            document.getElementById('configContent').style.display = 'none';
+        }
+
+        function showUserSection() {
+            document.getElementById('loginSection').style.display = 'none';
+            document.getElementById('userSection').style.display = 'block';
+            document.getElementById('configContent').style.display = 'block';
+        }
+
+        async function checkAuthStatus() {
+            const token = localStorage.getItem('auth_token');
+            if (token) {
+                try {
+                    // Verify token with backend and get user info
+                    const response = await fetch('/auth/me', {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+
+                    if (response.ok) {
+                        const userData = await response.json();
+                        document.getElementById('userEmail').textContent = userData.email || userData.username;
+                        showUserSection();
+                        loadConfiguration(); // Load user's configuration
+                        return;
+                    } else {
+                        // Token is invalid, remove it
+                        localStorage.removeItem('auth_token');
+                    }
+                } catch (error) {
+                    console.error('Error verifying token:', error);
+                    localStorage.removeItem('auth_token');
+                }
+            }
+            showLoginSection();
+        }
+
+        // Initialize authentication and load configuration
+        document.addEventListener('DOMContentLoaded', async function() {
+            await checkAuthStatus();
+        });
     </script>
 </body>
 </html>

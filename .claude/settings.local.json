@@ -23,7 +23,10 @@
       "Bash(./scrape_healthcare.sh:*)",
       "WebFetch(domain:localhost)",
       "Bash(dir)",
-      "Bash(git pull:*)"
+      "Bash(git pull:*)",
+      "Bash(grep:*)",
+      "Read(//Users/LeoChan/Documents/**)",
+      "Bash(xargs kill:*)"
     ],
     "deny": [],
     "defaultMode": "acceptEdits"
