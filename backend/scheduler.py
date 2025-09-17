@@ -657,6 +657,8 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
             try:
                 today = date.today()
                 saved_count = 0
+                skipped_count = 0
+                not_found_count = 0
 
                 logger.info(f"💾 Saving {len(df_filtered)} filtered jobs to database...")
 
@@ -708,13 +710,17 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
 
                                 db.add(filtered_view)
                                 saved_count += 1
+                            else:
+                                skipped_count += 1
+                        else:
+                            not_found_count += 1
 
                     except Exception as row_error:
                         logger.warning(f"⚠️  Error saving filtered job row: {row_error}")
                         continue
 
                 db.commit()
-                logger.info(f"✅ Successfully saved {saved_count} filtered jobs to database")
+                logger.info(f"✅ Database save results: {saved_count} new, {skipped_count} already exist, {not_found_count} not found in scraped jobs")
 
             finally:
                 db.close()
@@ -812,15 +818,23 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                     df['AI_Relevance'] = 'Not Evaluated'
 
                 # Filter jobs (score >= 60, not irrelevant)
+                before_filter = len(df)
                 df_filtered = df[
                     (df['Relevance_Score'] >= 60) &
                     (df['AI_Relevance'] != 'Irrelevant')
                 ].copy()
 
-                logger.info(f"🎯 After filtering: {len(df_filtered)} jobs qualify")
+                after_filter = len(df_filtered)
+                logger.info(f"🎯 After filtering: {after_filter} jobs qualify (from {before_filter} total)")
 
                 if len(df_filtered) == 0:
-                    logger.info("📭 No jobs passed filtering criteria")
+                    # Log why no jobs qualified
+                    high_score_count = len(df[df['Relevance_Score'] >= 60])
+                    ai_relevant_count = len(df[df['AI_Relevance'] != 'Irrelevant'])
+                    logger.info(f"📭 No jobs passed filtering criteria:")
+                    logger.info(f"   - Jobs with score ≥60: {high_score_count}")
+                    logger.info(f"   - Jobs not marked 'Irrelevant' by AI: {ai_relevant_count}")
+                    logger.info(f"   - User search terms: {search_terms}")
                     return 0
 
                 # Save to FilteredJobView
