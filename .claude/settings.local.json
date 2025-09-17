@@ -22,7 +22,8 @@
       "Bash(chmod:*)",
       "Bash(./scrape_healthcare.sh:*)",
       "WebFetch(domain:localhost)",
-      "Bash(dir)"
+      "Bash(dir)",
+      "Bash(git pull:*)"
     ],
     "deny": [],
     "defaultMode": "acceptEdits"

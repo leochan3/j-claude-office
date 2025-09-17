@@ -6,11 +6,7 @@
     "indeed",
     "linkedin"
   ],
-  "search_terms": [
-    "alliance",
-    "partnership",
-    "licens"
-  ],
+  "search_terms": [],
   "exclude_keywords": "director",
   "min_relevance_score": 60,
   "days_old": 7,
