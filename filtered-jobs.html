@@ -677,10 +677,10 @@
         let savedJobIds = new Set();
 
         // Initialize the page
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', async function() {
             setupEventListeners();
-            checkAuthStatus();
-            loadSavedJobs();
+            await checkAuthStatus();
+            await loadSavedJobs();
             loadFilteredJobs();
         });
 
@@ -823,6 +823,7 @@
                             savedJobIds.add(savedJob.job_data.job_url);
                         }
                     });
+                    console.log('Loaded saved jobs:', savedJobIds.size, 'URLs:', Array.from(savedJobIds));
                 }
             } catch (error) {
                 console.error('Error loading saved jobs:', error);
@@ -857,6 +858,7 @@
                     throw new Error(data.message || 'Failed to load jobs');
                 }
 
+                currentJobs = data.filtered_jobs;
                 totalJobs = data.total_count;
                 updateStats(data.filtered_jobs);
                 renderJobs(data.filtered_jobs);
@@ -901,6 +903,8 @@
 
             // Store current jobs for selection
             currentJobs = jobs;
+
+            console.log('Rendering jobs, saved job IDs:', savedJobIds.size);
 
             if (jobs.length === 0) {
                 emptyState.style.display = 'block';
