@@ -243,7 +243,7 @@ class ScrapedJob(Base):
     
     # Deduplication fields
     job_url = Column(String, index=True)  # Primary deduplication key
-    job_hash = Column(String, unique=True, nullable=False, index=True)  # Hash for deduplication
+    job_hash = Column(String, nullable=False, index=True)  # Hash for deduplication (no longer globally unique)
     
     # Core job information
     title = Column(String, nullable=False, index=True)
@@ -279,6 +279,8 @@ class ScrapedJob(Base):
     
     # Additional indexes for fast searching
     __table_args__ = (
+        # Composite unique constraint: same job hash can exist multiple times, but not within same scraping run
+        Index('idx_job_hash_run_unique', 'job_hash', 'scraping_run_id', unique=True),
         Index('idx_job_search', 'title', 'company', 'location'),
         Index('idx_job_date', 'date_posted', 'is_active'),
         Index('idx_job_salary', 'min_amount', 'max_amount'),

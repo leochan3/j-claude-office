@@ -762,6 +762,9 @@ class JobScrapingService:
 
         Robust to duplicates by handling IntegrityError per-row and committing per insert
         to avoid rolling back the entire batch on a single duplicate.
+        
+        Note: Deduplication is now per-scraping-run to allow different users to scrape
+        the same jobs, while still preventing duplicates within the same scraping session.
         """
 
         from sqlalchemy.exc import IntegrityError
@@ -778,10 +781,12 @@ class JobScrapingService:
                 job_url=job_data.get('job_url', '')
             )
 
-            # Quick existence check
+            # Check for duplicates within the same scraping run only
+            # This allows different users to scrape the same jobs
             try:
                 existing_job = db.query(ScrapedJob).filter(
-                    ScrapedJob.job_hash == job_hash
+                    ScrapedJob.job_hash == job_hash,
+                    ScrapedJob.scraping_run_id == scraping_run_id
                 ).first()
                 if existing_job:
                     duplicate_jobs_count += 1

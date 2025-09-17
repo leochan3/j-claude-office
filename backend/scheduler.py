@@ -481,6 +481,14 @@ class AutoScrapingScheduler:
             return "AI Not Configured"
 
         try:
+            # Ensure job_description is a string (handle case where it might be a list)
+            if isinstance(job_description, list):
+                job_description = ' '.join(str(item) for item in job_description if item)
+            elif job_description is None:
+                job_description = ""
+            else:
+                job_description = str(job_description)
+
             # Use description if available, otherwise fall back to title
             content_to_analyze = job_description.strip() if job_description and job_description.strip() else job_title.strip()
 
@@ -714,19 +722,19 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
         except Exception as e:
             logger.error(f"❌ Error saving filtered jobs to database: {e}")
 
-    def create_filtered_jobs_from_existing(self, user_id: str, company_names: list, search_terms: list):
-        """Create filtered jobs for a user from existing scraped jobs when no new jobs were found."""
+    def create_user_filtered_jobs(self, user_id: str, company_names: list, search_terms: list):
+        """Create filtered jobs for a user from all available scraped jobs for the target companies."""
         try:
             from database import FilteredJobView, ScrapedJob
             from datetime import date, datetime, timezone, timedelta
             import pandas as pd
 
-            logger.info(f"🔄 Creating filtered jobs from existing data for user {user_id}")
+            logger.info(f"🔄 Creating filtered jobs for user {user_id}")
 
             db = SessionLocal()
             try:
-                # Get recent jobs from the companies we're interested in (within last 7 days)
-                recent_date = datetime.now(timezone.utc) - timedelta(days=7)
+                # Get jobs from the companies we're interested in (within last 30 days to include more data)
+                recent_date = datetime.now(timezone.utc) - timedelta(days=30)
 
                 # Build company filter
                 company_filters = []
@@ -740,10 +748,10 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                 ).all()
 
                 if not existing_jobs:
-                    logger.info(f"🔍 No existing jobs found for companies: {', '.join(company_names)}")
+                    logger.info(f"🔍 No jobs found for companies: {', '.join(company_names)}")
                     return 0
 
-                logger.info(f"🔍 Found {len(existing_jobs)} existing jobs to filter")
+                logger.info(f"🔍 Found {len(existing_jobs)} jobs to filter for user")
 
                 # Convert jobs to DataFrame for filtering
                 jobs_data = []
@@ -754,8 +762,8 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                         'Title': job.title,
                         'Location': job.location,
                         'Description': job.description or '',
-                        'Salary_Min': job.salary_min,
-                        'Salary_Max': job.salary_max,
+                        'Salary_Min': job.min_amount,
+                        'Salary_Max': job.max_amount,
                         'scraping_run_id': job.scraping_run_id
                     })
 
@@ -775,10 +783,21 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
 
                 # Apply AI scoring if available
                 if self.openai_client:
-                    df['AI_Relevance'] = df.apply(
-                        lambda row: self.evaluate_job_relevance_with_ai(row['Title'], row['Description']),
-                        axis=1
-                    )
+                    logger.info("🤖 Applying AI relevance evaluation...")
+                    def safe_ai_evaluation(row):
+                        try:
+                            title = str(row['Title']) if row['Title'] is not None else ""
+                            description = str(row['Description']) if row['Description'] is not None else ""
+                            logger.debug(f"Evaluating: {title[:50]}...")
+                            result = self.evaluate_job_relevance_with_ai(title, description)
+                            logger.debug(f"AI result: {result}")
+                            return result
+                        except Exception as e:
+                            logger.error(f"Error in AI evaluation for job '{row.get('Title', 'Unknown')}': {e}")
+                            return "Error"
+
+                    df['AI_Relevance'] = df.apply(safe_ai_evaluation, axis=1)
+                    logger.info("🤖 AI evaluation completed")
                 else:
                     df['AI_Relevance'] = 'Not Evaluated'
 
@@ -835,7 +854,7 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                 db.close()
 
         except Exception as e:
-            logger.error(f"❌ Error creating filtered jobs from existing data: {e}")
+            logger.error(f"❌ Error creating filtered jobs for user: {e}")
             return 0
 
     def create_jobs_csv(self, scraping_run_id: int, user_id: str = None) -> str:
@@ -1165,9 +1184,9 @@ Generated by JobSpy Automated Scraping System
                     csv_filename = csv_result
                     filtered_csv_filename = None
 
-                # If no jobs were found in this scraping run, try to create filtered jobs from existing data
-                if user_id and total_jobs == 0:
-                    self.create_filtered_jobs_from_existing(user_id, company_names, search_terms)
+                # Always create filtered jobs for the user from available data (existing + new)
+                if user_id:
+                    self.create_user_filtered_jobs(user_id, company_names, search_terms)
 
                 # Create daily job review list
                 await self._create_daily_review_list(start_time, total_jobs)
