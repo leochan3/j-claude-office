@@ -775,11 +775,21 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                 # Apply scoring and filtering
                 scoring_keywords = [term for term in search_terms if term.lower() not in ['all']]
 
-                # Apply relevance scoring
-                df['Relevance_Score'] = df.apply(
-                    lambda row: self.calculate_relevance_score(row.to_dict(), scoring_keywords, 0),
-                    axis=1
-                )
+                # Apply relevance scoring - calculate best score across all search terms
+                def calculate_best_score(row):
+                    best_score = 0
+                    best_keyword = ""
+                    for search_term in scoring_keywords:
+                        score = self.calculate_relevance_score(row.to_dict(), search_term, 0)
+                        if score > best_score:
+                            best_score = score
+                            best_keyword = search_term
+                    return best_score, best_keyword
+                
+                # Calculate scores and best keywords
+                score_results = df.apply(calculate_best_score, axis=1)
+                df['Relevance_Score'] = [result[0] for result in score_results]
+                df['Best_Matching_Keyword'] = [result[1] for result in score_results]
 
                 # Apply AI scoring if available
                 if self.openai_client:
@@ -834,7 +844,7 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                             filter_date=today,
                             relevance_score=row['Relevance_Score'],
                             enhanced_score=row['Relevance_Score'],  # Can be enhanced later
-                            best_matching_keyword=', '.join(scoring_keywords),
+                            best_matching_keyword=row['Best_Matching_Keyword'],
                             ai_relevance=row['AI_Relevance'],
                             filter_criteria={
                                 'min_score': 60,
