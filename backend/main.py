@@ -3984,6 +3984,11 @@ async def saved_jobs_page():
     """Serve the saved jobs HTML page"""
     return FileResponse("../saved-jobs.html")
 
+@app.get("/dashboard")
+async def unified_dashboard():
+    """Serve the unified job discovery dashboard"""
+    return FileResponse("../unified-dashboard.html")
+
 @app.post("/api/filtered-jobs/process-existing")
 async def process_existing_scraped_jobs(
     days_back: int = Query(7, description="Process jobs from last N days"),
