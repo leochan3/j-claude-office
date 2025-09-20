@@ -510,43 +510,6 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                 <input type="hidden" id="targetRoles" value="product manager, engineer, software developer">
             </div>
 
-            <!-- Email & Notifications -->
-            <div class="config-card">
-                <h3 class="card-title">📧 Email & Notifications</h3>
-
-                <div class="form-group">
-                    <label for="emailEnabled">Enable Email Notifications</label>
-                    <label class="toggle-switch">
-                        <input type="checkbox" id="emailEnabled" checked>
-                        <span class="slider"></span>
-                    </label>
-                    <div class="help-text">Receive email reports after each scraping run</div>
-                </div>
-
-                <div class="form-group">
-                    <label for="notificationEmail">Notification Email</label>
-                    <input type="email" id="notificationEmail" placeholder="your.email@example.com">
-                    <div class="help-text">Email address to receive scraping reports</div>
-                </div>
-
-                <div class="form-group">
-                    <label for="includeFiltered">Include Filtered Job List</label>
-                    <label class="toggle-switch">
-                        <input type="checkbox" id="includeFiltered" checked>
-                        <span class="slider"></span>
-                    </label>
-                    <div class="help-text">Attach high-quality filtered job list to emails</div>
-                </div>
-
-                <div class="form-group">
-                    <label for="emailOnFailure">Email on Failure</label>
-                    <label class="toggle-switch">
-                        <input type="checkbox" id="emailOnFailure" checked>
-                        <span class="slider"></span>
-                    </label>
-                    <div class="help-text">Send notifications when scraping fails</div>
-                </div>
-            </div>
 
             <!-- Hidden executive role filtering fields with defaults -->
             <input type="hidden" id="excludeExecutive" value="true">
@@ -582,10 +545,6 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
             ai_model: 'gpt-4.1-mini',
             ai_prompt: 'Evaluate job relevance for product manager/engineer/software roles.\n\nRate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant, Irrelevant',
             target_roles: 'product manager, engineer, software developer',
-            email_enabled: true,
-            notification_email: '',
-            include_filtered: true,
-            email_on_failure: true,
             exclude_executive: true,
             executive_keywords: 'president, director, vp, vice president, chief, head of',
             seniority_filter: '',
@@ -761,10 +720,6 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                 config.ai_model = document.getElementById('aiModel')?.value || 'gpt-4.1-mini';
                 config.ai_prompt = document.getElementById('aiPrompt')?.value || '';
                 config.target_roles = 'product manager, engineer, software developer';
-                config.email_enabled = document.getElementById('emailEnabled')?.checked || false;
-                config.notification_email = document.getElementById('notificationEmail')?.value || '';
-                config.include_filtered = document.getElementById('includeFiltered')?.checked || true;
-                config.email_on_failure = document.getElementById('emailOnFailure')?.checked || false;
                 config.exclude_executive = true;
                 config.executive_keywords = 'president, director, vp, vice president, chief, head of';
                 config.seniority_filter = '';
@@ -818,10 +773,6 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
             document.getElementById('aiEnabled').checked = config.ai_enabled;
             document.getElementById('aiModel').value = config.ai_model || 'gpt-4.1-mini';
             document.getElementById('aiPrompt').value = config.ai_prompt || '';
-            document.getElementById('emailEnabled').checked = config.email_enabled;
-            document.getElementById('notificationEmail').value = config.notification_email || '';
-            document.getElementById('includeFiltered').checked = config.include_filtered;
-            document.getElementById('emailOnFailure').checked = config.email_on_failure;
 
             renderSearchTerms();
             renderCompanies();
