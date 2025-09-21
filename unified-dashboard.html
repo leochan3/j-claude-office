@@ -305,16 +305,46 @@
             gap: 8px;
         }
 
-        .saved-indicator {
+        .saved-indicator, .applied-indicator, .not-interested-indicator {
             font-size: 10px;
             font-weight: 500;
             color: #ffffff;
-            background: #48bb78;
             padding: 2px 6px;
             border-radius: 4px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            user-select: none;
         }
+
+        .saved-indicator {
+            background: #48bb78;
+        }
+
+        .saved-indicator:hover {
+            background: #38a169;
+            transform: scale(1.05);
+        }
+
+        .applied-indicator {
+            background: #667eea;
+        }
+
+        .applied-indicator:hover {
+            background: #5a67d8;
+            transform: scale(1.05);
+        }
+
+        .not-interested-indicator {
+            background: #e53e3e;
+        }
+
+        .not-interested-indicator:hover {
+            background: #c53030;
+            transform: scale(1.05);
+        }
+
 
         .job-company {
             font-size: 13px;
@@ -390,23 +420,23 @@
             display: flex;
             align-items: center;
             gap: 6px;
-            flex-wrap: wrap;
         }
 
         .action-btn {
-            padding: 6px 12px;
+            padding: 4px 8px;
             border: 1px solid #4a5568;
-            border-radius: 6px;
+            border-radius: 4px;
             background: #2d3561;
             color: #cbd5e0;
-            font-size: 12px;
+            font-size: 11px;
             font-weight: 500;
             cursor: pointer;
             transition: all 0.2s ease;
             text-decoration: none;
             display: inline-block;
             text-align: center;
-            min-width: 70px;
+            min-width: 60px;
+            white-space: nowrap;
         }
 
         .action-btn:hover {
@@ -886,6 +916,8 @@
         let selectedJobs = new Set();
         let currentUser = null;
         let savedJobUrls = new Set(); // Track saved job URLs for indicators
+        let appliedJobUrls = new Set(); // Track applied job URLs for indicators
+        let notInterestedJobUrls = new Set(); // Track not interested job URLs for indicators
         let currentModalJob = null; // Track currently displayed job in modal
 
         function displayUserInfo(userData) {
@@ -1004,12 +1036,29 @@
                     const data = await response.json();
                     if (data.success && data.saved_jobs) {
                         savedJobUrls.clear();
+                        appliedJobUrls.clear();
+                        notInterestedJobUrls.clear();
+
                         data.saved_jobs.forEach(job => {
                             if (job.job_data && job.job_data.job_url) {
-                                savedJobUrls.add(job.job_data.job_url);
+                                const jobUrl = job.job_data.job_url;
+
+                                // Always track as saved
+                                savedJobUrls.add(jobUrl);
+
+                                // Track status based on job properties
+                                if (job.applied) {
+                                    appliedJobUrls.add(jobUrl);
+                                } else if (job.not_interested) {
+                                    notInterestedJobUrls.add(jobUrl);
+                                }
                             }
                         });
-                        console.log('Loaded', savedJobUrls.size, 'saved job URLs for tracking');
+                        console.log('Loaded job status tracking:', {
+                            saved: savedJobUrls.size,
+                            applied: appliedJobUrls.size,
+                            notInterested: notInterestedJobUrls.size
+                        });
                     }
                 }
             } catch (error) {
@@ -1357,9 +1406,23 @@
                 jobTypeClass = 'remote';
             }
 
-            // Check if this job is already saved
-            const isSaved = actualJob.job_url && savedJobUrls.has(actualJob.job_url);
-            const savedIndicator = isSaved ? '<span class="saved-indicator">Saved</span>' : '';
+            // Check job status and determine which indicator to show (priority: Applied > Not Interested > Saved)
+            let statusIndicator = '';
+            let isApplied = false;
+            let isNotInterested = false;
+            if (actualJob.job_url) {
+                const jobUrl = actualJob.job_url;
+                isApplied = appliedJobUrls.has(jobUrl);
+                isNotInterested = notInterestedJobUrls.has(jobUrl);
+
+                if (isApplied) {
+                    statusIndicator = '<span class="applied-indicator" onclick="toggleJobStatus(\'${jobId}\', \'applied\')" title="Click to remove applied status">Applied</span>';
+                } else if (isNotInterested) {
+                    statusIndicator = '<span class="not-interested-indicator" onclick="toggleJobStatus(\'${jobId}\', \'not_interest\')" title="Click to remove not interested status">Not Interested</span>';
+                } else if (savedJobUrls.has(jobUrl)) {
+                    statusIndicator = '<span class="saved-indicator" onclick="showJobStatusMenu(\'${jobId}\', event)" title="Click to mark as applied or not interested">Saved</span>';
+                }
+            }
 
             return `
                 <div class="job-row ${isSelected ? 'selected' : ''}" data-job-id="${jobId}">
@@ -1367,7 +1430,7 @@
                     <div class="job-info">
                         <div class="job-title">
                             ${actualJob.title || 'No Title'}
-                            ${savedIndicator}
+                            ${statusIndicator}
                         </div>
                         <div class="job-company">
                             <div class="company-logo"></div>
@@ -1718,9 +1781,28 @@
 
                 const data = await response.json();
                 if (data.success) {
+                    // Update tracking sets for immediate UI feedback
+                    for (const jobId of jobIds) {
+                        const job = jobs.find(j => j.id === jobId);
+                        if (job) {
+                            let actualJob;
+                            if (currentView === 'saved' && job.job_data) {
+                                actualJob = job.job_data;
+                            } else {
+                                actualJob = job;
+                            }
+
+                            if (actualJob.job_url) {
+                                appliedJobUrls.add(actualJob.job_url);
+                                // Remove from not interested if it was there
+                                notInterestedJobUrls.delete(actualJob.job_url);
+                            }
+                        }
+                    }
+
                     selectedJobs.clear();
                     updateSelectionInfo();
-                    loadJobData(); // Refresh the list
+                    renderJobs(); // Re-render to show updated indicators
                     showNotification(`${jobIds.length} job(s) marked as applied!`, 'success');
                 } else {
                     showNotification('Failed to update job status: ' + data.message, 'error');
@@ -1756,9 +1838,28 @@
 
                 const data = await response.json();
                 if (data.success) {
+                    // Update tracking sets for immediate UI feedback
+                    for (const jobId of jobIds) {
+                        const job = jobs.find(j => j.id === jobId);
+                        if (job) {
+                            let actualJob;
+                            if (currentView === 'saved' && job.job_data) {
+                                actualJob = job.job_data;
+                            } else {
+                                actualJob = job;
+                            }
+
+                            if (actualJob.job_url) {
+                                notInterestedJobUrls.add(actualJob.job_url);
+                                // Remove from applied if it was there
+                                appliedJobUrls.delete(actualJob.job_url);
+                            }
+                        }
+                    }
+
                     selectedJobs.clear();
                     updateSelectionInfo();
-                    loadJobData(); // Refresh the list
+                    renderJobs(); // Re-render to show updated indicators
                     showNotification(`${jobIds.length} job(s) marked as not interested!`, 'success');
                 } else {
                     showNotification('Failed to update job status: ' + data.message, 'error');
@@ -1811,6 +1912,155 @@
             // Optionally mark as applied after opening
             if (confirm('Mark these jobs as applied?')) {
                 handleBulkMarkApplied();
+            }
+        }
+
+        function showJobStatusMenu(jobId, event) {
+            // Remove any existing menu
+            const existingMenu = document.querySelector('.status-menu');
+            if (existingMenu) existingMenu.remove();
+
+            const menu = document.createElement('div');
+            menu.className = 'status-menu';
+            menu.innerHTML = `
+                <button class="status-menu-item" onclick="window.menuAction('${jobId}', 'applied')">✅ Mark as Applied</button>
+                <button class="status-menu-item" onclick="window.menuAction('${jobId}', 'not_interest')">❌ Mark as Not Interested</button>
+            `;
+
+            // Position menu near cursor and add to body
+            menu.style.position = 'fixed';
+            menu.style.zIndex = '1000';
+            menu.style.backgroundColor = '#2d3561';
+            menu.style.border = '1px solid #4a5568';
+            menu.style.borderRadius = '6px';
+            menu.style.padding = '8px';
+            menu.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
+
+            // Add styles if not already added
+            if (!document.querySelector('#status-menu-styles')) {
+                const style = document.createElement('style');
+                style.id = 'status-menu-styles';
+                style.textContent = `
+                    .status-menu-item {
+                        display: block;
+                        width: 100%;
+                        padding: 8px 12px;
+                        margin: 2px 0;
+                        background: transparent;
+                        border: none;
+                        color: #cbd5e0;
+                        text-align: left;
+                        cursor: pointer;
+                        border-radius: 4px;
+                        font-size: 14px;
+                    }
+                    .status-menu-item:hover {
+                        background: #4a5568;
+                        color: #ffffff;
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+
+            // Position menu at cursor/click location
+            const rect = event.target.getBoundingClientRect();
+            menu.style.left = rect.left + 'px';
+            menu.style.top = (rect.bottom + 5) + 'px';
+
+            document.body.appendChild(menu);
+
+            // Remove menu when clicking outside
+            setTimeout(() => {
+                document.addEventListener('click', function closeMenu(e) {
+                    if (!menu.contains(e.target)) {
+                        menu.remove();
+                        document.removeEventListener('click', closeMenu);
+                    }
+                });
+            }, 100);
+        }
+
+        // Global menu action handler
+        window.menuAction = function(jobId, statusType) {
+            document.querySelector('.status-menu')?.remove();
+            toggleJobStatus(jobId, statusType);
+        };
+
+        async function toggleJobStatus(jobId, statusType) {
+            try {
+                const token = localStorage.getItem('auth_token');
+                const job = jobs.find(j => j.id === jobId);
+                if (!job) return;
+
+                let actualJob;
+                if (currentView === 'saved' && job.job_data) {
+                    actualJob = job.job_data;
+                } else {
+                    actualJob = job;
+                }
+
+                if (!actualJob.job_url) return;
+
+                // Determine current status and toggle
+                const isCurrentlyApplied = appliedJobUrls.has(actualJob.job_url);
+                const isCurrentlyNotInterested = notInterestedJobUrls.has(actualJob.job_url);
+
+                let requestBody = { job_ids: [jobId] };
+
+                if (statusType === 'applied') {
+                    // Toggle applied status
+                    requestBody.applied = !isCurrentlyApplied;
+                    if (!isCurrentlyApplied) {
+                        // If turning on applied, turn off not_interested
+                        requestBody.not_interested = false;
+                    }
+                } else if (statusType === 'not_interest') {
+                    // Toggle not interested status
+                    requestBody.not_interested = !isCurrentlyNotInterested;
+                    if (!isCurrentlyNotInterested) {
+                        // If turning on not_interested, turn off applied
+                        requestBody.applied = false;
+                    }
+                }
+
+                const response = await fetch('/user/update-saved-job-status', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(requestBody)
+                });
+
+                const data = await response.json();
+                if (data.success) {
+                    // Update tracking sets for immediate UI feedback
+                    if (statusType === 'applied') {
+                        if (requestBody.applied) {
+                            appliedJobUrls.add(actualJob.job_url);
+                            notInterestedJobUrls.delete(actualJob.job_url);
+                        } else {
+                            appliedJobUrls.delete(actualJob.job_url);
+                        }
+                    } else if (statusType === 'not_interest') {
+                        if (requestBody.not_interested) {
+                            notInterestedJobUrls.add(actualJob.job_url);
+                            appliedJobUrls.delete(actualJob.job_url);
+                        } else {
+                            notInterestedJobUrls.delete(actualJob.job_url);
+                        }
+                    }
+
+                    renderJobs(); // Re-render to show updated indicators
+                    const statusText = statusType === 'applied' ? 'applied' : 'not interested';
+                    const action = requestBody[statusType === 'applied' ? 'applied' : 'not_interested'] ? 'marked as' : 'removed from';
+                    showNotification(`Job ${action} ${statusText}!`, 'success');
+                } else {
+                    showNotification('Failed to update job status: ' + (data.message || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                console.error('Error updating job status:', error);
+                showNotification('Failed to update job status', 'error');
             }
         }
 

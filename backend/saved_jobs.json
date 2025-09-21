@@ -371,7 +371,7 @@
     "applied": false,
     "applied_at": null,
     "save_for_later": false,
-    "not_interested": false,
+    "not_interested": true,
     "tags": []
   },
   {
@@ -392,8 +392,8 @@
     },
     "notes": "Filtered job - Enhanced Score: 249, AI Relevance: Somewhat Relevant",
     "saved_at": "2025-09-17T10:58:43.125395",
-    "applied": false,
-    "applied_at": null,
+    "applied": true,
+    "applied_at": "2025-09-20T21:56:04.095233",
     "save_for_later": false,
     "not_interested": false,
     "tags": []

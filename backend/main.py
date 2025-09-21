@@ -2079,6 +2079,65 @@ async def get_saved_jobs_categorized():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error retrieving categorized saved jobs: {str(e)}")
 
+@app.post("/user/update-saved-job-status")
+async def update_saved_job_status(
+    request: dict,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Bulk update status for multiple saved jobs"""
+    try:
+        job_ids = request.get('job_ids', [])
+        applied = request.get('applied', False)
+        not_interested = request.get('not_interested', False)
+
+        if not job_ids:
+            raise HTTPException(status_code=400, detail="No job IDs provided")
+
+        saved_jobs = load_saved_jobs()
+        updated_count = 0
+
+        # Update each job
+        for job in saved_jobs:
+            if job.id in job_ids:
+                if applied:
+                    job.applied = True
+                    job.applied_at = datetime.now().isoformat()
+                    # Clear conflicting statuses
+                    job.not_interested = False
+                    job.save_for_later = False
+
+                if not_interested:
+                    job.not_interested = True
+                    # Clear conflicting statuses
+                    job.applied = False
+                    job.applied_at = None
+                    job.save_for_later = False
+
+                updated_count += 1
+
+        if updated_count == 0:
+            raise HTTPException(status_code=404, detail="No saved jobs found with provided IDs")
+
+        # Save updated list
+        save_jobs_to_file(saved_jobs)
+
+        status_text = "applied" if applied else "not interested" if not_interested else "updated"
+
+        return {
+            "success": True,
+            "message": f"{updated_count} job(s) marked as {status_text} successfully",
+            "updated_count": updated_count
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error updating job status: {str(e)}"
+        )
+
 # ==========================================
 # JOB SCRAPING AND LOCAL SEARCH ENDPOINTS
 # ==========================================
