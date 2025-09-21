@@ -229,7 +229,7 @@
 
         .job-list-header {
             display: grid;
-            grid-template-columns: 40px 1fr 200px 150px 120px 100px 100px;
+            grid-template-columns: 40px 1fr 200px 150px 120px 100px 160px;
             gap: 16px;
             padding: 12px 24px;
             background: #2d3561;
@@ -246,7 +246,7 @@
 
         .job-row {
             display: grid;
-            grid-template-columns: 40px 1fr 200px 150px 120px 100px 100px;
+            grid-template-columns: 40px 1fr 200px 150px 120px 100px 160px;
             gap: 16px;
             padding: 16px 24px;
             border-bottom: 1px solid #2d3561;
@@ -389,18 +389,24 @@
         .job-actions {
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
+            flex-wrap: wrap;
         }
 
         .action-btn {
-            padding: 4px 8px;
+            padding: 6px 12px;
             border: 1px solid #4a5568;
-            border-radius: 4px;
+            border-radius: 6px;
             background: #2d3561;
             color: #cbd5e0;
-            font-size: 11px;
+            font-size: 12px;
+            font-weight: 500;
             cursor: pointer;
             transition: all 0.2s ease;
+            text-decoration: none;
+            display: inline-block;
+            text-align: center;
+            min-width: 70px;
         }
 
         .action-btn:hover {
@@ -417,6 +423,17 @@
 
         .action-btn.primary:hover {
             background: #5a67d8;
+        }
+
+        .apply-btn {
+            background: #48bb78 !important;
+            border-color: #48bb78 !important;
+            color: #ffffff !important;
+        }
+
+        .apply-btn:hover {
+            background: #38a169 !important;
+            border-color: #38a169 !important;
         }
 
         /* Status badges */
@@ -553,7 +570,7 @@
 
             .job-list-header,
             .job-row {
-                grid-template-columns: 40px 1fr 80px;
+                grid-template-columns: 40px 1fr 120px;
             }
 
             .job-list-header .location-col,
@@ -855,10 +872,8 @@
                 <div class="selection-info" id="selectionInfo">
                     0 jobs selected
                 </div>
-                <div class="bulk-actions">
-                    <button class="bulk-btn" id="bulkSaveBtn">Save Selected</button>
-                    <button class="bulk-btn" id="bulkDeleteBtn">Remove Selected</button>
-                    <button class="bulk-btn primary" id="bulkApplyBtn">Mark as Applied</button>
+                <div class="bulk-actions" id="bulkActions">
+                    <!-- Actions will be populated based on current view -->
                 </div>
             </div>
         </div>
@@ -966,6 +981,9 @@
                 // Load saved jobs for tracking indicators
                 await loadSavedJobsForTracking();
 
+                // Initialize bulk actions for current view
+                updateBulkActions(currentView);
+
                 // Only load data for job-related views
                 if (currentView === 'filtered' || currentView === 'saved') {
                     loadJobData();
@@ -1029,11 +1047,6 @@
             // Logout
             document.getElementById('logoutBtn').addEventListener('click', handleLogout);
 
-            // Bulk actions
-            document.getElementById('bulkSaveBtn').addEventListener('click', handleBulkSave);
-            document.getElementById('bulkDeleteBtn').addEventListener('click', handleBulkDelete);
-            document.getElementById('bulkApplyBtn').addEventListener('click', handleBulkApply);
-
             // Login modal
             document.getElementById('loginSubmitBtn').addEventListener('click', handleLogin);
             document.getElementById('loginPassword').addEventListener('keypress', function(e) {
@@ -1073,6 +1086,9 @@
             // Clear selection
             selectedJobs.clear();
             updateSelectionInfo();
+
+            // Update bulk actions based on view
+            updateBulkActions(view);
 
             // Only load data for job-related views
             if (view === 'filtered' || view === 'saved') {
@@ -1368,6 +1384,11 @@
                         <button class="action-btn view-jd-btn" onclick="viewJobDescription('${jobId}')">
                             👁️ View JD
                         </button>
+                        ${actualJob.job_url ? `
+                        <a href="${actualJob.job_url}" target="_blank" class="action-btn apply-btn">
+                            🚀 Apply
+                        </a>
+                        ` : ''}
                     </div>
                 </div>
             `;
@@ -1401,6 +1422,45 @@
             const count = selectedJobs.size;
             const text = count === 1 ? '1 job selected' : `${count} jobs selected`;
             document.getElementById('selectionInfo').textContent = text;
+        }
+
+        function updateBulkActions(view) {
+            const bulkActions = document.getElementById('bulkActions');
+
+            if (view === 'filtered') {
+                // Filtered jobs: Save Selected (highlighted) + Clear Selections
+                bulkActions.innerHTML = `
+                    <button class="bulk-btn" id="clearSelectionsBtn" onclick="clearAllSelections()">Clear Selections</button>
+                    <button class="bulk-btn primary" id="bulkSaveBtn" onclick="handleBulkSave()">💾 Save Selected</button>
+                `;
+            } else if (view === 'saved') {
+                // Saved jobs: Multiple actions + Clear Selections
+                bulkActions.innerHTML = `
+                    <button class="bulk-btn" id="clearSelectionsBtn" onclick="clearAllSelections()">Clear Selections</button>
+                    <button class="bulk-btn" id="bulkNotInterestedBtn" onclick="handleBulkNotInterested()">❌ Not Interested</button>
+                    <button class="bulk-btn" id="bulkApplyNowBtn" onclick="handleBulkApplyNow()">🚀 Apply Now</button>
+                    <button class="bulk-btn primary" id="bulkMarkAppliedBtn" onclick="handleBulkMarkApplied()">✅ Mark as Applied</button>
+                `;
+            } else {
+                // Other views: just clear selections
+                bulkActions.innerHTML = `
+                    <button class="bulk-btn" id="clearSelectionsBtn" onclick="clearAllSelections()">Clear Selections</button>
+                `;
+            }
+        }
+
+        function clearAllSelections() {
+            selectedJobs.clear();
+            updateSelectionInfo();
+
+            // Update UI to reflect cleared selections
+            document.querySelectorAll('.job-row').forEach(row => {
+                row.classList.remove('selected');
+                const checkbox = row.querySelector('.job-checkbox');
+                if (checkbox) {
+                    checkbox.classList.remove('checked');
+                }
+            });
         }
 
         function updateJobCounts() {
@@ -1636,14 +1696,15 @@
             }
         }
 
-        async function handleBulkApply() {
+        async function handleBulkMarkApplied() {
             if (selectedJobs.size === 0) return;
 
             try {
                 const token = localStorage.getItem('auth_token');
                 const jobIds = Array.from(selectedJobs);
 
-                const response = await fetch('/user/update-job-status', {
+                // For saved jobs, we need to update the job status
+                const response = await fetch('/user/update-saved-job-status', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1651,7 +1712,7 @@
                     },
                     body: JSON.stringify({
                         job_ids: jobIds,
-                        status: 'applied'
+                        applied: true
                     })
                 });
 
@@ -1660,13 +1721,96 @@
                     selectedJobs.clear();
                     updateSelectionInfo();
                     loadJobData(); // Refresh the list
-                    showNotification('Jobs marked as applied!', 'success');
+                    showNotification(`${jobIds.length} job(s) marked as applied!`, 'success');
                 } else {
                     showNotification('Failed to update job status: ' + data.message, 'error');
                 }
             } catch (error) {
-                console.error('Error updating job status:', error);
-                showNotification('Failed to update job status', 'error');
+                console.error('Error marking jobs as applied:', error);
+                showNotification('Failed to mark jobs as applied', 'error');
+            }
+        }
+
+        async function handleBulkNotInterested() {
+            if (selectedJobs.size === 0) return;
+
+            if (!confirm(`Mark ${selectedJobs.size} job(s) as not interested?`)) {
+                return;
+            }
+
+            try {
+                const token = localStorage.getItem('auth_token');
+                const jobIds = Array.from(selectedJobs);
+
+                const response = await fetch('/user/update-saved-job-status', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        job_ids: jobIds,
+                        not_interested: true
+                    })
+                });
+
+                const data = await response.json();
+                if (data.success) {
+                    selectedJobs.clear();
+                    updateSelectionInfo();
+                    loadJobData(); // Refresh the list
+                    showNotification(`${jobIds.length} job(s) marked as not interested!`, 'success');
+                } else {
+                    showNotification('Failed to update job status: ' + data.message, 'error');
+                }
+            } catch (error) {
+                console.error('Error marking jobs as not interested:', error);
+                showNotification('Failed to mark jobs as not interested', 'error');
+            }
+        }
+
+        async function handleBulkApplyNow() {
+            if (selectedJobs.size === 0) return;
+
+            // Get job URLs for selected jobs
+            const jobUrls = [];
+            for (const jobId of selectedJobs) {
+                const job = jobs.find(j => j.id === jobId);
+                if (job) {
+                    let actualJob;
+                    if (currentView === 'saved' && job.job_data) {
+                        actualJob = job.job_data;
+                    } else {
+                        actualJob = job;
+                    }
+
+                    if (actualJob.job_url) {
+                        jobUrls.push(actualJob.job_url);
+                    }
+                }
+            }
+
+            if (jobUrls.length === 0) {
+                showNotification('No application URLs found for selected jobs', 'error');
+                return;
+            }
+
+            if (jobUrls.length > 10) {
+                if (!confirm(`This will open ${jobUrls.length} tabs. Continue?`)) {
+                    return;
+                }
+            }
+
+            // Open all job URLs in new tabs
+            jobUrls.forEach(url => {
+                window.open(url, '_blank');
+            });
+
+            showNotification(`Opened ${jobUrls.length} job application(s) in new tabs!`, 'success');
+
+            // Optionally mark as applied after opening
+            if (confirm('Mark these jobs as applied?')) {
+                handleBulkMarkApplied();
             }
         }
 
