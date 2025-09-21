@@ -684,6 +684,30 @@
     </style>
 </head>
 <body>
+    <!-- Login Modal -->
+    <div id="loginModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.8); z-index: 2000; align-items: center; justify-content: center;">
+        <div style="background: #1a1b3a; padding: 40px; border-radius: 12px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5); max-width: 400px; width: 90%;">
+            <h2 style="color: #ffffff; text-align: center; margin-bottom: 8px; font-size: 24px;">Welcome Back</h2>
+            <p style="color: #a0aec0; text-align: center; margin-bottom: 32px; font-size: 14px;">Sign in to access your job dashboard</p>
+
+            <div style="margin-bottom: 20px;">
+                <label style="display: block; margin-bottom: 8px; color: #cbd5e0; font-weight: 500;">Username</label>
+                <input type="text" id="loginUsername" placeholder="Enter your username" style="width: 100%; padding: 12px; border: 1px solid #4a5568; border-radius: 6px; background: #2d3561; color: #ffffff; font-size: 14px;">
+            </div>
+
+            <div style="margin-bottom: 24px;">
+                <label style="display: block; margin-bottom: 8px; color: #cbd5e0; font-weight: 500;">Password</label>
+                <input type="password" id="loginPassword" placeholder="Enter your password" style="width: 100%; padding: 12px; border: 1px solid #4a5568; border-radius: 6px; background: #2d3561; color: #ffffff; font-size: 14px;">
+            </div>
+
+            <button id="loginSubmitBtn" style="width: 100%; padding: 12px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #ffffff; border: none; border-radius: 6px; font-size: 16px; font-weight: 600; cursor: pointer; margin-bottom: 16px;">
+                Sign In
+            </button>
+
+            <div id="loginError" style="display: none; color: #fc8181; text-align: center; font-size: 14px; margin-top: 16px;"></div>
+        </div>
+    </div>
+
     <div class="app-container">
         <!-- Sidebar Overlay for Mobile -->
         <div class="sidebar-overlay" id="sidebarOverlay"></div>
@@ -821,6 +845,70 @@
             userInfo.style.display = 'block';
         }
 
+        function showLoginModal() {
+            const modal = document.getElementById('loginModal');
+            modal.style.display = 'flex';
+            document.getElementById('loginUsername').focus();
+        }
+
+        function hideLoginModal() {
+            const modal = document.getElementById('loginModal');
+            modal.style.display = 'none';
+            document.getElementById('loginError').style.display = 'none';
+            document.getElementById('loginUsername').value = '';
+            document.getElementById('loginPassword').value = '';
+        }
+
+        async function handleLogin() {
+            const username = document.getElementById('loginUsername').value;
+            const password = document.getElementById('loginPassword').value;
+            const errorDiv = document.getElementById('loginError');
+            const submitBtn = document.getElementById('loginSubmitBtn');
+
+            if (!username || !password) {
+                errorDiv.textContent = 'Please enter both username and password';
+                errorDiv.style.display = 'block';
+                return;
+            }
+
+            // Show loading state
+            submitBtn.textContent = 'Signing In...';
+            submitBtn.disabled = true;
+            errorDiv.style.display = 'none';
+
+            try {
+                const response = await fetch('/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const data = await response.json();
+
+                if (data.access_token) {
+                    localStorage.setItem('auth_token', data.access_token);
+                    currentUser = data.user;
+                    displayUserInfo(data.user);
+                    hideLoginModal();
+                    showNotification('Login successful!', 'success');
+                    loadJobData(); // Load data after successful login
+                } else {
+                    errorDiv.textContent = data.message || 'Login failed';
+                    errorDiv.style.display = 'block';
+                }
+            } catch (error) {
+                console.error('Login error:', error);
+                errorDiv.textContent = 'Login failed. Please try again.';
+                errorDiv.style.display = 'block';
+            } finally {
+                // Reset button state
+                submitBtn.textContent = 'Sign In';
+                submitBtn.disabled = false;
+            }
+        }
+
         // Initialize the application
         document.addEventListener('DOMContentLoaded', function() {
             initializeApp();
@@ -830,7 +918,10 @@
         async function initializeApp() {
             const isAuthenticated = await checkAuthStatus();
             if (isAuthenticated) {
-                loadJobData();
+                // Only load data for job-related views
+                if (currentView === 'filtered' || currentView === 'saved') {
+                    loadJobData();
+                }
             }
         }
 
@@ -841,6 +932,11 @@
                     const view = e.currentTarget.dataset.view;
                     if (view === 'autoscraping') {
                         window.location.href = '/autoscraping';
+                        return;
+                    }
+                    if (view === 'settings') {
+                        // Handle settings view - could be a separate settings panel or redirect
+                        showNotification('Settings panel coming soon!', 'success');
                         return;
                     }
                     if (view !== currentView) {
@@ -863,30 +959,51 @@
             document.getElementById('bulkSaveBtn').addEventListener('click', handleBulkSave);
             document.getElementById('bulkDeleteBtn').addEventListener('click', handleBulkDelete);
             document.getElementById('bulkApplyBtn').addEventListener('click', handleBulkApply);
+
+            // Login modal
+            document.getElementById('loginSubmitBtn').addEventListener('click', handleLogin);
+            document.getElementById('loginPassword').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    handleLogin();
+                }
+            });
+            document.getElementById('loginUsername').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    document.getElementById('loginPassword').focus();
+                }
+            });
         }
 
         function switchView(view) {
+            // Don't switch if already on this view
+            if (currentView === view) return;
+
             currentView = view;
 
             // Update navigation
             document.querySelectorAll('.nav-item').forEach(item => {
                 item.classList.remove('active');
             });
-            document.querySelector(`[data-view="${view}"]`).classList.add('active');
+            const targetNavItem = document.querySelector(`[data-view="${view}"]`);
+            if (targetNavItem) {
+                targetNavItem.classList.add('active');
+            }
 
             // Update page title
             const titles = {
                 'filtered': 'Filtered Jobs',
                 'saved': 'Saved Jobs'
             };
-            document.getElementById('pageTitle').textContent = titles[view];
+            document.getElementById('pageTitle').textContent = titles[view] || 'Dashboard';
 
             // Clear selection
             selectedJobs.clear();
             updateSelectionInfo();
 
-            // Load data for new view
-            loadJobData();
+            // Only load data for job-related views
+            if (view === 'filtered' || view === 'saved') {
+                loadJobData();
+            }
         }
 
         async function loadJobData() {
@@ -929,7 +1046,7 @@
                 if (!response.ok) {
                     if (response.status === 401) {
                         localStorage.removeItem('auth_token');
-                        window.location.href = '/autoscraping';
+                        showLoginModal();
                         return;
                     }
 
@@ -940,13 +1057,20 @@
                 }
 
                 const data = await response.json();
-                console.log('Response data:', data);
+                console.log('Response data for view', currentView, ':', data);
+
+                // Log first job structure for debugging
+                if (data.filtered_jobs && data.filtered_jobs.length > 0) {
+                    console.log('Sample filtered job structure:', data.filtered_jobs[0]);
+                } else if (data.saved_jobs && data.saved_jobs.length > 0) {
+                    console.log('Sample saved job structure:', data.saved_jobs[0]);
+                }
 
                 if (currentView === 'filtered') {
                     // Handle filtered jobs response format
                     if (data.success && data.filtered_jobs) {
                         jobs = data.filtered_jobs;
-                        console.log('Loaded filtered jobs:', jobs.length);
+                        console.log('Loaded filtered jobs:', jobs.length, 'Sample job:', jobs[0]);
                     } else {
                         console.warn('No filtered_jobs in response:', data);
                         jobs = [];
@@ -955,7 +1079,7 @@
                     // Handle saved jobs response format
                     if (data.success && data.saved_jobs) {
                         jobs = data.saved_jobs;
-                        console.log('Loaded saved jobs:', jobs.length);
+                        console.log('Loaded saved jobs:', jobs.length, 'Sample job:', jobs[0]);
                     } else {
                         console.warn('No saved_jobs in response:', data);
                         jobs = [];
@@ -970,7 +1094,8 @@
 
                 // Check if the error is due to HTML response (likely a redirect or error page)
                 if (error.message.includes("Unexpected token '<'")) {
-                    showError('Authentication required. Please log in through the auto-scraping page.');
+                    localStorage.removeItem('auth_token');
+                    showLoginModal();
                 } else {
                     showError(`Failed to load jobs: ${error.message}`);
                 }
@@ -1005,16 +1130,22 @@
         }
 
         function createJobRow(job) {
+
             // Handle different data structures: filtered jobs vs saved jobs
             let actualJob, jobId, isSelected;
 
             if (currentView === 'filtered' && job.scraped_job) {
-                // Filtered jobs have nested structure
+                // Filtered jobs have nested structure: job.scraped_job
                 actualJob = job.scraped_job;
                 jobId = job.id; // filtered_job_view ID
                 isSelected = selectedJobs.has(jobId);
+            } else if (currentView === 'saved' && job.job_data) {
+                // Saved jobs have nested structure: job.job_data
+                actualJob = job.job_data;
+                jobId = job.id;
+                isSelected = selectedJobs.has(jobId);
             } else {
-                // Saved jobs or other formats
+                // Direct job object (fallback)
                 actualJob = job;
                 jobId = job.id || job.scraped_job_id;
                 isSelected = selectedJobs.has(jobId);
@@ -1047,8 +1178,54 @@
                         scoreClass = 'score-low';
                     }
                 }
+            } else if (currentView === 'saved') {
+                // For saved jobs, try to extract score from notes or use job-level scores
+                console.log('Processing saved job score for:', actualJob.title, 'Notes:', job.notes);
+
+                if (job.notes && job.notes.includes('Enhanced Score:')) {
+                    const scoreMatch = job.notes.match(/Enhanced Score:\s*(\d+(?:\.\d+)?)/);
+                    if (scoreMatch) {
+                        const score = parseFloat(scoreMatch[1]);
+                        scoreText = Math.round(score);
+                        if (score >= 80) scoreClass = 'score-high';
+                        else if (score >= 60) scoreClass = 'score-medium';
+                        console.log('Found enhanced score in notes:', score);
+                    }
+                }
+
+                // Try AI relevance from notes
+                if (job.notes && job.notes.includes('AI Relevance:')) {
+                    const relevanceMatch = job.notes.match(/AI Relevance:\s*([^,\n]+)/);
+                    if (relevanceMatch) {
+                        const relevance = relevanceMatch[1].toLowerCase().trim();
+                        if (relevance.includes('highly relevant')) {
+                            scoreText = 'High';
+                            scoreClass = 'score-high';
+                        } else if (relevance.includes('somewhat relevant')) {
+                            scoreText = 'Med';
+                            scoreClass = 'score-medium';
+                        } else if (relevance.includes('irrelevant')) {
+                            scoreText = 'Low';
+                            scoreClass = 'score-low';
+                        }
+                        console.log('Found AI relevance in notes:', relevance);
+                    }
+                }
+
+                // Fallback to checking job-level or job_data-level scores
+                if (scoreText === 'N/A') {
+                    const score = job.enhanced_score || job.relevance_score || actualJob.enhanced_score || actualJob.relevance_score || actualJob.score;
+                    if (score && typeof score === 'number') {
+                        scoreText = Math.round(score);
+                        if (score >= 80) scoreClass = 'score-high';
+                        else if (score >= 60) scoreClass = 'score-medium';
+                        console.log('Found fallback score:', score);
+                    } else {
+                        console.log('No score found in job object. Available fields:', Object.keys(job));
+                    }
+                }
             } else {
-                // For saved jobs, use other score fields
+                // For other job types, use available score fields
                 const score = actualJob.relevance_score || actualJob.enhanced_score || actualJob.score;
                 if (score && typeof score === 'number') {
                     scoreText = Math.round(score);
@@ -1057,10 +1234,15 @@
                 }
             }
 
-            // Format date - handle multiple date formats
-            const date = currentView === 'filtered' ?
-                (job.filter_date || actualJob.date_posted) :
-                (actualJob.date_posted || actualJob.date_saved || actualJob.created_at);
+            // Format date - prefer job posting date over save/filter dates
+            let date;
+            if (currentView === 'filtered') {
+                date = actualJob.date_posted || job.filter_date;
+            } else if (currentView === 'saved') {
+                date = actualJob.date_posted || job.created_at;
+            } else {
+                date = actualJob.date_posted || actualJob.date_saved || actualJob.created_at;
+            }
 
             let dateText = 'N/A';
             if (date) {
@@ -1217,38 +1399,107 @@
                 const token = localStorage.getItem('auth_token');
                 const jobIds = Array.from(selectedJobs);
 
-                // For filtered jobs, we need to save the scraped job IDs, not the filtered job view IDs
-                let actualJobIds = jobIds;
-                if (currentView === 'filtered') {
-                    actualJobIds = jobIds.map(filteredJobId => {
-                        const job = jobs.find(j => j.id === filteredJobId);
-                        return job ? job.scraped_job_id : filteredJobId;
-                    }).filter(id => id);
+                console.log('Saving jobs:', jobIds);
+
+                // Save each job individually as the API expects individual job objects
+                let successCount = 0;
+                let errors = [];
+
+                for (const jobId of jobIds) {
+                    try {
+                        const job = jobs.find(j => j.id === jobId);
+                        if (!job) {
+                            errors.push(`Job ${jobId} not found`);
+                            continue;
+                        }
+
+                        // Build job data based on current view
+                        let jobData;
+                        if (currentView === 'filtered' && job.scraped_job) {
+                            // For filtered jobs, extract from nested structure
+                            jobData = {
+                                job_data: {
+                                    title: job.scraped_job.title,
+                                    company: job.scraped_job.company,
+                                    location: job.scraped_job.location,
+                                    job_url: job.scraped_job.job_url,
+                                    description: job.scraped_job.description,
+                                    job_type: job.scraped_job.job_type,
+                                    is_remote: job.scraped_job.is_remote,
+                                    min_amount: job.scraped_job.min_amount,
+                                    max_amount: job.scraped_job.max_amount,
+                                    currency: job.scraped_job.currency,
+                                    date_posted: job.scraped_job.date_posted,
+                                    site: job.scraped_job.site
+                                },
+                                notes: `Enhanced Score: ${job.enhanced_score || 'N/A'}, AI Relevance: ${job.ai_relevance || 'N/A'}`,
+                                tags: ['filtered', 'ai-scored']
+                            };
+                        } else {
+                            // For saved jobs or other formats
+                            jobData = {
+                                job_data: {
+                                    title: job.title,
+                                    company: job.company,
+                                    location: job.location,
+                                    job_url: job.job_url,
+                                    description: job.description,
+                                    job_type: job.job_type,
+                                    is_remote: job.is_remote,
+                                    min_amount: job.min_amount,
+                                    max_amount: job.max_amount,
+                                    currency: job.currency,
+                                    date_posted: job.date_posted,
+                                    site: job.site
+                                },
+                                notes: `Saved from dashboard`,
+                                tags: ['dashboard']
+                            };
+                        }
+
+                        const response = await fetch('/user/save-job', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${token}`
+                            },
+                            body: JSON.stringify(jobData)
+                        });
+
+                        const data = await response.json();
+                        if (data.success) {
+                            successCount++;
+                        } else {
+                            errors.push(data.message || `Failed to save job ${job.title || jobId}`);
+                        }
+                    } catch (error) {
+                        console.error(`Error saving job ${jobId}:`, error);
+                        errors.push(`Error saving job: ${error.message}`);
+                    }
                 }
 
-                console.log('Saving jobs:', actualJobIds);
+                // Clear selection and show results
+                selectedJobs.clear();
+                updateSelectionInfo();
 
-                const response = await fetch('/user/save-job', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}`
-                    },
-                    body: JSON.stringify({ job_ids: actualJobIds })
-                });
-
-                const data = await response.json();
-                if (data.success) {
-                    selectedJobs.clear();
-                    updateSelectionInfo();
-                    loadJobData(); // Refresh the list
-                    showNotification(`${actualJobIds.length} jobs saved successfully!`, 'success');
-                } else {
-                    showNotification('Failed to save jobs: ' + data.message, 'error');
+                if (successCount > 0) {
+                    showNotification(`${successCount} job(s) saved successfully!`, 'success');
+                    // Add small delay before reload to ensure save operations complete
+                    setTimeout(() => {
+                        if (currentView === 'saved') {
+                            loadJobData(); // Refresh saved jobs list to show new saves
+                        }
+                    }, 500);
                 }
+
+                if (errors.length > 0) {
+                    console.error('Save errors:', errors);
+                    showNotification(`${errors.length} job(s) failed to save. Check console for details.`, 'error');
+                }
+
             } catch (error) {
-                console.error('Error saving jobs:', error);
-                showNotification('Failed to save jobs', 'error');
+                console.error('Error in bulk save:', error);
+                showNotification('Failed to save jobs: ' + error.message, 'error');
             }
         }
 
@@ -1342,8 +1593,8 @@
         async function checkAuthStatus() {
             const token = localStorage.getItem('auth_token');
             if (!token) {
-                console.log('No auth token found, redirecting to autoscraping page');
-                window.location.href = '/autoscraping';
+                console.log('No auth token found, showing login modal');
+                showLoginModal();
                 return false;
             }
 
@@ -1356,24 +1607,26 @@
                     const userData = await response.json();
                     currentUser = userData;
                     displayUserInfo(userData);
+                    hideLoginModal();
                     return true;
                 } else {
-                    console.log('Invalid token, redirecting to autoscraping page');
+                    console.log('Invalid token, showing login modal');
                     localStorage.removeItem('auth_token');
-                    window.location.href = '/autoscraping';
+                    showLoginModal();
                     return false;
                 }
             } catch (error) {
                 console.error('Error verifying token:', error);
                 localStorage.removeItem('auth_token');
-                window.location.href = '/autoscraping';
+                showLoginModal();
                 return false;
             }
         }
 
         function handleLogout() {
             localStorage.removeItem('auth_token');
-            window.location.href = '/autoscraping';
+            currentUser = null;
+            showLoginModal();
         }
 
         function showNotification(message, type) {
