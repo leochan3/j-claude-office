@@ -345,6 +345,18 @@
             transform: scale(1.05);
         }
 
+        .action-indicator {
+            background: #4a5568;
+            color: #ffffff;
+            font-size: 12px;
+            letter-spacing: 1px;
+        }
+
+        .action-indicator:hover {
+            background: #2d3748;
+            transform: scale(1.05);
+        }
+
 
         .job-company {
             font-size: 13px;
@@ -1406,7 +1418,7 @@
                 jobTypeClass = 'remote';
             }
 
-            // Check job status and determine which indicator to show (priority: Applied > Not Interested > Saved)
+            // Check job status and determine which indicator to show (priority: Applied > Not Interested > Saved > Actions)
             let statusIndicator = '';
             let isApplied = false;
             let isNotInterested = false;
@@ -1421,6 +1433,9 @@
                     statusIndicator = '<span class="not-interested-indicator" onclick="toggleJobStatus(\'${jobId}\', \'not_interest\')" title="Click to remove not interested status">Not Interested</span>';
                 } else if (savedJobUrls.has(jobUrl)) {
                     statusIndicator = '<span class="saved-indicator" onclick="showJobStatusMenu(\'${jobId}\', event)" title="Click to mark as applied or not interested">Saved</span>';
+                } else {
+                    // For unsaved jobs, show a generic action indicator
+                    statusIndicator = '<span class="action-indicator" onclick="showJobStatusMenu(\'${jobId}\', event)" title="Click to mark as applied, not interested, or save">•••</span>';
                 }
             }
 
@@ -1920,12 +1935,32 @@
             const existingMenu = document.querySelector('.status-menu');
             if (existingMenu) existingMenu.remove();
 
+            // Check if job is saved to determine menu options
+            const job = jobs.find(j => j.id === jobId);
+            let actualJob;
+            if (currentView === 'saved' && job.job_data) {
+                actualJob = job.job_data;
+            } else {
+                actualJob = job;
+            }
+
+            const isJobSaved = actualJob && actualJob.job_url && savedJobUrls.has(actualJob.job_url);
+
             const menu = document.createElement('div');
             menu.className = 'status-menu';
-            menu.innerHTML = `
-                <button class="status-menu-item" onclick="window.menuAction('${jobId}', 'applied')">✅ Mark as Applied</button>
-                <button class="status-menu-item" onclick="window.menuAction('${jobId}', 'not_interest')">❌ Mark as Not Interested</button>
-            `;
+
+            if (isJobSaved) {
+                menu.innerHTML = `
+                    <button class="status-menu-item" onclick="window.menuAction('${jobId}', 'applied')">✅ Mark as Applied</button>
+                    <button class="status-menu-item" onclick="window.menuAction('${jobId}', 'not_interest')">❌ Mark as Not Interested</button>
+                `;
+            } else {
+                menu.innerHTML = `
+                    <button class="status-menu-item" onclick="window.menuAction('${jobId}', 'applied')">✅ Mark as Applied</button>
+                    <button class="status-menu-item" onclick="window.menuAction('${jobId}', 'not_interest')">❌ Mark as Not Interested</button>
+                    <button class="status-menu-item" onclick="window.menuAction('${jobId}', 'save')">💾 Save Job</button>
+                `;
+            }
 
             // Position menu near cursor and add to body
             menu.style.position = 'fixed';
@@ -1983,12 +2018,65 @@
         // Global menu action handler
         window.menuAction = function(jobId, statusType) {
             document.querySelector('.status-menu')?.remove();
-            toggleJobStatus(jobId, statusType);
+
+            if (statusType === 'save') {
+                // Handle save action
+                saveJobFromMenu(jobId);
+            } else {
+                // Handle status updates
+                toggleJobStatus(jobId, statusType);
+            }
         };
+
+        async function saveJobFromMenu(jobId) {
+            try {
+                const token = localStorage.getItem('auth_token');
+                if (!token) {
+                    showNotification('Please log in to save jobs', 'error');
+                    return;
+                }
+
+                const job = jobs.find(j => j.id === jobId);
+                if (!job) return;
+
+                let actualJob;
+                if (currentView === 'saved' && job.job_data) {
+                    actualJob = job.job_data;
+                } else {
+                    actualJob = job;
+                }
+
+                const response = await fetch('/user/save-job', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ job_data: actualJob })
+                });
+
+                const data = await response.json();
+                if (data.id) {
+                    savedJobUrls.add(actualJob.job_url);
+                    renderJobs(); // Re-render to show updated indicators
+                    showNotification('Job saved successfully!', 'success');
+                } else {
+                    showNotification('Failed to save job: ' + (data.message || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                console.error('Error saving job:', error);
+                showNotification('Failed to save job', 'error');
+            }
+        }
 
         async function toggleJobStatus(jobId, statusType) {
             try {
                 const token = localStorage.getItem('auth_token');
+                if (!token) {
+                    showNotification('Please log in to update job status', 'error');
+                    return;
+                }
+
                 const job = jobs.find(j => j.id === jobId);
                 if (!job) return;
 
@@ -2001,27 +2089,60 @@
 
                 if (!actualJob.job_url) return;
 
+                // Check if job is already saved
+                const isJobSaved = savedJobUrls.has(actualJob.job_url);
+
+                // If job is not saved, save it first
+                if (!isJobSaved) {
+                    const saveResponse = await fetch('/user/save-job', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({ job_data: actualJob })
+                    });
+
+                    const saveData = await saveResponse.json();
+                    if (!saveData.id) {
+                        showNotification('Failed to save job before updating status', 'error');
+                        return;
+                    }
+
+                    // Update saved tracking
+                    savedJobUrls.add(actualJob.job_url);
+
+                    // Use the saved job ID for status update
+                    jobId = saveData.id;
+                }
+
                 // Determine current status and toggle
                 const isCurrentlyApplied = appliedJobUrls.has(actualJob.job_url);
                 const isCurrentlyNotInterested = notInterestedJobUrls.has(actualJob.job_url);
 
+                // Use the same approach as working bulk actions
                 let requestBody = { job_ids: [jobId] };
 
                 if (statusType === 'applied') {
-                    // Toggle applied status
                     requestBody.applied = !isCurrentlyApplied;
                     if (!isCurrentlyApplied) {
                         // If turning on applied, turn off not_interested
                         requestBody.not_interested = false;
                     }
                 } else if (statusType === 'not_interest') {
-                    // Toggle not interested status
                     requestBody.not_interested = !isCurrentlyNotInterested;
                     if (!isCurrentlyNotInterested) {
                         // If turning on not_interested, turn off applied
                         requestBody.applied = false;
                     }
                 }
+
+                console.log('Updating job status:', {
+                    jobId,
+                    statusType,
+                    requestBody,
+                    actualJob: actualJob.job_url
+                });
 
                 const response = await fetch('/user/update-saved-job-status', {
                     method: 'POST',
@@ -2033,6 +2154,11 @@
                 });
 
                 const data = await response.json();
+                console.log('Status update response:', {
+                    status: response.status,
+                    data
+                });
+
                 if (data.success) {
                     // Update tracking sets for immediate UI feedback
                     if (statusType === 'applied') {
@@ -2056,11 +2182,12 @@
                     const action = requestBody[statusType === 'applied' ? 'applied' : 'not_interested'] ? 'marked as' : 'removed from';
                     showNotification(`Job ${action} ${statusText}!`, 'success');
                 } else {
-                    showNotification('Failed to update job status: ' + (data.message || 'Unknown error'), 'error');
+                    console.error('Status update failed:', data);
+                    showNotification('Failed to update job status: ' + (data.message || data.detail || 'Unknown error'), 'error');
                 }
             } catch (error) {
                 console.error('Error updating job status:', error);
-                showNotification('Failed to update job status', 'error');
+                showNotification('Failed to update job status: ' + error.message, 'error');
             }
         }
 

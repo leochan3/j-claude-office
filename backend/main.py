@@ -2085,7 +2085,7 @@ async def update_saved_job_status(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """Bulk update status for multiple saved jobs"""
+    """Bulk update status for multiple saved jobs using database"""
     try:
         job_ids = request.get('job_ids', [])
         applied = request.get('applied', False)
@@ -2094,33 +2094,42 @@ async def update_saved_job_status(
         if not job_ids:
             raise HTTPException(status_code=400, detail="No job IDs provided")
 
-        saved_jobs = load_saved_jobs()
         updated_count = 0
+        updated_jobs = []
 
-        # Update each job
-        for job in saved_jobs:
-            if job.id in job_ids:
+        # Update each job in the database
+        for job_id in job_ids:
+            # Find the saved job in database
+            saved_job = db.query(UserSavedJob).filter(
+                UserSavedJob.id == job_id,
+                UserSavedJob.user_id == current_user.id
+            ).first()
+            
+            if saved_job:
+                # Update the job status
                 if applied:
-                    job.applied = True
-                    job.applied_at = datetime.now().isoformat()
+                    saved_job.applied = True
+                    saved_job.applied_at = datetime.now(timezone.utc)
                     # Clear conflicting statuses
-                    job.not_interested = False
-                    job.save_for_later = False
+                    saved_job.not_interested = False
+                    saved_job.save_for_later = False
 
                 if not_interested:
-                    job.not_interested = True
+                    saved_job.not_interested = True
                     # Clear conflicting statuses
-                    job.applied = False
-                    job.applied_at = None
-                    job.save_for_later = False
+                    saved_job.applied = False
+                    saved_job.applied_at = None
+                    saved_job.save_for_later = False
 
+                saved_job.updated_at = datetime.now(timezone.utc)
+                updated_jobs.append(saved_job)
                 updated_count += 1
 
         if updated_count == 0:
             raise HTTPException(status_code=404, detail="No saved jobs found with provided IDs")
 
-        # Save updated list
-        save_jobs_to_file(saved_jobs)
+        # Commit all changes
+        db.commit()
 
         status_text = "applied" if applied else "not interested" if not_interested else "updated"
 
