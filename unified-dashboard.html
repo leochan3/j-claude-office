@@ -1434,8 +1434,8 @@
                 } else if (savedJobUrls.has(jobUrl)) {
                     statusIndicator = '<span class="saved-indicator" onclick="showJobStatusMenu(\'${jobId}\', event)" title="Click to mark as applied or not interested">Saved</span>';
                 } else {
-                    // For unsaved jobs, show a generic action indicator
-                    statusIndicator = '<span class="action-indicator" onclick="showJobStatusMenu(\'${jobId}\', event)" title="Click to mark as applied, not interested, or save">•••</span>';
+                    // For unsaved jobs, leave status indicator empty
+                    statusIndicator = '';
                 }
             }
 
@@ -1694,10 +1694,20 @@
                         });
 
                         const data = await response.json();
-                        if (data.success) {
+                        if (response.ok && data.success) {
                             successCount++;
                         } else {
-                            errors.push(data.message || `Failed to save job ${job.title || jobId}`);
+                            // Handle different types of errors
+                            let errorMessage = data.message || data.detail || `Failed to save job ${job.title || jobId}`;
+                            
+                            // Make error messages more user-friendly
+                            if (errorMessage.includes('already saved')) {
+                                errorMessage = `"${job.scraped_job?.title || job.title || 'Job'}" is already saved`;
+                            } else if (errorMessage.includes('Job already saved')) {
+                                errorMessage = `"${job.scraped_job?.title || job.title || 'Job'}" is already saved`;
+                            }
+                            
+                            errors.push(errorMessage);
                         }
                     } catch (error) {
                         console.error(`Error saving job ${jobId}:`, error);
@@ -1709,9 +1719,36 @@
                 selectedJobs.clear();
                 updateSelectionInfo();
 
-                if (successCount > 0) {
+                // Show combined results message
+                if (successCount > 0 && errors.length > 0) {
+                    // Both successes and failures - show as success with details
+                    const duplicateCount = errors.filter(e => e.includes('already saved')).length;
+                    const otherErrors = errors.length - duplicateCount;
+                    
+                    let message = `${successCount} job(s) saved successfully.`;
+                    if (duplicateCount > 0) {
+                        message += ` ${duplicateCount} job(s) were already saved.`;
+                    }
+                    if (otherErrors > 0) {
+                        message += ` ${otherErrors} job(s) failed to save.`;
+                    }
+                    
+                    showNotification(message, 'success');
+                } else if (successCount > 0) {
+                    // Only successes
                     showNotification(`${successCount} job(s) saved successfully!`, 'success');
+                } else if (errors.length > 0) {
+                    // Only failures
+                    const duplicateCount = errors.filter(e => e.includes('already saved')).length;
+                    if (duplicateCount === errors.length) {
+                        showNotification(`All ${errors.length} job(s) were already saved.`, 'success');
+                    } else {
+                        showNotification(`${errors.length} job(s) failed to save. Check console for details.`, 'error');
+                    }
+                }
 
+                // Update UI if there were any successes
+                if (successCount > 0) {
                     // Update saved jobs tracking and refresh indicators
                     await loadSavedJobsForTracking();
 
@@ -1726,9 +1763,9 @@
                     }, 500);
                 }
 
+                // Log errors for debugging
                 if (errors.length > 0) {
                     console.error('Save errors:', errors);
-                    showNotification(`${errors.length} job(s) failed to save. Check console for details.`, 'error');
                 }
 
             } catch (error) {
@@ -2515,7 +2552,7 @@
                 });
 
                 const data = await response.json();
-                if (data.success) {
+                if (response.ok && data.success) {
                     showNotification('Job saved successfully!', 'success');
 
                     // Update saved jobs tracking
@@ -2530,7 +2567,20 @@
                     // Re-render jobs to show updated saved indicators
                     renderJobs();
                 } else {
-                    showNotification('Failed to save job: ' + (data.message || 'Unknown error'), 'error');
+                    // Handle different types of errors with user-friendly messages
+                    let errorMessage = data.message || data.detail || 'Unknown error';
+                    
+                    if (errorMessage.includes('already saved') || errorMessage.includes('Job already saved')) {
+                        showNotification('This job is already saved!', 'success');
+                        
+                        // Update modal UI to show already saved state
+                        const saveBtn = document.getElementById('jobModalSaveBtn');
+                        saveBtn.textContent = 'Already Saved';
+                        saveBtn.disabled = true;
+                        saveBtn.style.opacity = '0.6';
+                    } else {
+                        showNotification('Failed to save job: ' + errorMessage, 'error');
+                    }
                 }
             } catch (error) {
                 console.error('Error saving job:', error);
