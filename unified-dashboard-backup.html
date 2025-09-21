@@ -2819,6 +2819,438 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
             loadAutoScrapingConfiguration();
             updateAutoScrapingStatus();
         }
+
+                                    <div style="margin-bottom: 20px;">
+                                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #555;">Add New Company</label>
+                                        <input type="text" id="newCompany" placeholder="Enter company name" style="width: 100%; padding: 12px; border: 2px solid #e1e5e9; border-radius: 8px; font-size: 14px;">
+                                        <button onclick="addCompany()" style="margin-top: 10px; padding: 8px 16px; background: #6c757d; color: white; border: none; border-radius: 8px; cursor: pointer; width: 100%;">+ Add Company</button>
+                                    </div>
+
+                                    <div id="companiesList" style="max-height: 200px; overflow-y: auto; border: 1px solid #e1e5e9; border-radius: 8px; padding: 10px; background: #f8f9fa;">
+                                        <!-- Companies will be loaded here -->
+                                    </div>
+
+                                    <!-- Hidden field with default value -->
+                                    <input type="hidden" id="defaultLocations" value="USA">
+                                </div>
+
+                                <!-- Search Terms & Keywords -->
+                                <div style="background: white; border-radius: 15px; padding: 25px; box-shadow: 0 8px 25px rgba(0,0,0,0.1);">
+                                    <h3 style="font-size: 1.4em; color: #333; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">🔍 Search Terms & Filtering</h3>
+
+                                    <div style="margin-bottom: 20px;">
+                                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #555;">Job Titles / Search Terms</label>
+                                        <input type="text" id="searchTermsInput" placeholder="Type and press Enter" style="width: 100%; padding: 12px; border: 2px solid #e1e5e9; border-radius: 8px; font-size: 14px;">
+                                        <div style="color: #666; font-size: 12px; margin-top: 5px;">Press Enter after each term to add it</div>
+                                        <div id="searchTermsTags" style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;"></div>
+                                    </div>
+
+                                    <div style="margin-bottom: 20px;">
+                                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #555;">Exclude Keywords</label>
+                                        <input type="text" id="excludeKeywords" placeholder="intern, unpaid, volunteer" style="width: 100%; padding: 12px; border: 2px solid #e1e5e9; border-radius: 8px; font-size: 14px;">
+                                        <div style="color: #666; font-size: 12px; margin-top: 5px;">Jobs containing these words will be filtered out</div>
+                                    </div>
+
+                                    <div style="margin-bottom: 20px;">
+                                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #555;">Location</label>
+                                        <input type="text" id="location" placeholder="San Francisco, CA" style="width: 100%; padding: 12px; border: 2px solid #e1e5e9; border-radius: 8px; font-size: 14px;">
+                                        <div style="color: #666; font-size: 12px; margin-top: 5px;">City, state or country to search jobs in</div>
+                                    </div>
+
+                                    <div>
+                                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #555;">Distance (miles)</label>
+                                        <select id="distance" style="width: 100%; padding: 12px; border: 2px solid #e1e5e9; border-radius: 8px; font-size: 14px;">
+                                            <option value="0">Exact location only</option>
+                                            <option value="5">Within 5 miles</option>
+                                            <option value="10">Within 10 miles</option>
+                                            <option value="25" selected>Within 25 miles</option>
+                                            <option value="50">Within 50 miles</option>
+                                            <option value="100">Within 100 miles</option>
+                                        </select>
+                                        <div style="color: #666; font-size: 12px; margin-top: 5px;">Search radius from the specified location</div>
+                                    </div>
+
+                                    <!-- Hidden fields with default values -->
+                                    <input type="hidden" id="minRelevanceScore" value="60">
+                                    <input type="hidden" id="daysOld" value="7">
+                                </div>
+
+                                <!-- AI Configuration -->
+                                <div style="background: white; border-radius: 15px; padding: 25px; box-shadow: 0 8px 25px rgba(0,0,0,0.1);">
+                                    <h3 style="font-size: 1.4em; color: #333; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">🤖 AI Relevance Configuration</h3>
+
+                                    <div style="margin-bottom: 20px;">
+                                        <label style="display: flex; align-items: center; gap: 10px; font-weight: 600; color: #555; cursor: pointer;">
+                                            <input type="checkbox" id="aiEnabled" checked style="width: 20px; height: 20px;">
+                                            Enable AI Job Evaluation
+                                        </label>
+                                        <div style="color: #666; font-size: 12px; margin-top: 5px;">Use AI to evaluate job relevance and apply score bonuses</div>
+                                    </div>
+
+                                    <div style="margin-bottom: 20px;">
+                                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #555;">AI Model</label>
+                                        <select id="aiModel" style="width: 100%; padding: 12px; border: 2px solid #e1e5e9; border-radius: 8px; font-size: 14px;">
+                                            <option value="gpt-4.1-mini">GPT-4.1 Mini (Recommended)</option>
+                                            <option value="gpt-4.1-nano">GPT-4.1 Nano (Cheaper)</option>
+                                            <option value="gpt-4o-mini">GPT-4o Mini (Alternative)</option>
+                                        </select>
+                                        <div style="color: #666; font-size: 12px; margin-top: 5px;">Choose the AI model for job evaluation</div>
+                                    </div>
+
+                                    <div>
+                                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #555;">Custom AI Evaluation Prompt</label>
+                                        <textarea id="aiPrompt" style="width: 100%; padding: 12px; border: 2px solid #e1e5e9; border-radius: 8px; font-size: 14px; min-height: 80px; resize: vertical;">Evaluate job relevance for product manager/engineer/software roles.
+
+Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant, Irrelevant</textarea>
+                                        <div style="color: #666; font-size: 12px; margin-top: 5px;">Customize how AI evaluates job relevance for your needs</div>
+                                    </div>
+
+                                    <!-- Hidden field with default value -->
+                                    <input type="hidden" id="targetRoles" value="product manager, engineer, software developer">
+                                </div>
+
+                                <!-- Hidden executive role filtering fields with defaults -->
+                                <input type="hidden" id="excludeExecutive" value="true">
+                                <input type="hidden" id="executiveKeywords" value="president, director, vp, vice president, chief, head of">
+                                <input type="hidden" id="seniorityFilter" value="">
+                            </div>
+
+                            <!-- Action Buttons -->
+                            <div style="display: flex; gap: 15px; justify-content: center; margin-top: 30px;">
+                                <button onclick="saveConfiguration()" style="padding: 12px 24px; background: #28a745; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;">💾 Save Configuration</button>
+                                <button onclick="loadConfiguration()" style="padding: 12px 24px; background: #6c757d; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;">🔄 Reset to Saved</button>
+                                <button onclick="runNow()" style="padding: 12px 24px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;">🚀 Run Scraping Now</button>
+                                <button onclick="testConfiguration()" style="padding: 12px 24px; background: #6c757d; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;">🧪 Test Configuration</button>
+                            </div>
+                        </div>
+
+                        <!-- Notification -->
+                        <div id="notification" style="position: fixed; top: 20px; right: 20px; padding: 15px 20px; border-radius: 8px; color: white; font-weight: 600; z-index: 1000; display: none;"></div>
+                    </div>
+                </div>
+            `;
+            
+            // Initialize the auto-scraping functionality
+            initializeAutoScraping();
+        }
+
+        function initializeAutoScraping() {
+            // Load configuration and initialize
+            loadConfiguration();
+            initializeEventListeners();
+            // Initial status update in case config loading fails
+            setTimeout(() => updateStatus(), 100);
+        }
+
+        function initializeEventListeners() {
+            // Search terms input
+            const searchTermsInput = document.getElementById('searchTermsInput');
+            if (searchTermsInput) {
+                searchTermsInput.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        addSearchTerm();
+                    }
+                });
+            }
+
+            // Auto-update status when form changes
+            const formElements = document.querySelectorAll('input, select, textarea');
+            formElements.forEach(element => {
+                element.addEventListener('change', updateStatus);
+            });
+
+            // Company input
+            const newCompanyInput = document.getElementById('newCompany');
+            if (newCompanyInput) {
+                newCompanyInput.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        addCompany();
+                    }
+                });
+            }
+        }
+
+        function addSearchTerm() {
+            const input = document.getElementById('searchTermsInput');
+            const term = input.value.trim();
+
+            if (term && !autoScrapingConfig.search_terms.includes(term)) {
+                autoScrapingConfig.search_terms.push(term);
+                renderSearchTerms();
+                input.value = '';
+            }
+        }
+
+        function removeSearchTerm(term) {
+            autoScrapingConfig.search_terms = autoScrapingConfig.search_terms.filter(t => t !== term);
+            renderSearchTerms();
+        }
+
+        function renderSearchTerms() {
+            const container = document.getElementById('searchTermsTags');
+            if (container) {
+                container.innerHTML = autoScrapingConfig.search_terms.map(term =>
+                    `<div style="background: #667eea; color: white; padding: 5px 12px; border-radius: 15px; font-size: 12px; display: flex; align-items: center; gap: 5px;">
+                        ${term}
+                        <span onclick="removeSearchTerm('${term}')" style="cursor: pointer; font-weight: bold; margin-left: 5px;">×</span>
+                    </div>`
+                ).join('');
+            }
+        }
+
+        function addCompany() {
+            const input = document.getElementById('newCompany');
+            const company = input.value.trim();
+
+            if (company && !autoScrapingConfig.companies.some(c => c.name.toLowerCase() === company.toLowerCase())) {
+                autoScrapingConfig.companies.push({
+                    name: company,
+                    active: true
+                });
+                renderCompanies();
+                input.value = '';
+            }
+        }
+
+        function removeCompany(companyName) {
+            autoScrapingConfig.companies = autoScrapingConfig.companies.filter(c => c.name !== companyName);
+            renderCompanies();
+        }
+
+        function toggleCompany(companyName) {
+            const company = autoScrapingConfig.companies.find(c => c.name === companyName);
+            if (company) {
+                company.active = !company.active;
+                renderCompanies();
+            }
+        }
+
+        function renderCompanies() {
+            const container = document.getElementById('companiesList');
+            if (container) {
+                container.innerHTML = autoScrapingConfig.companies.map(company =>
+                    `<div style="display: flex; justify-content: space-between; align-items: center; padding: 8px; margin-bottom: 5px; background: #1a1b3a; border-radius: 5px;">
+                        <span style="color: ${company.active ? '#28a745' : '#6c757d'};">
+                            ${company.active ? '✅' : '⏸️'} ${company.name}
+                        </span>
+                        <div>
+                            <button onclick="toggleCompany('${company.name}')" style="font-size: 12px; padding: 5px 10px; margin-right: 5px; background: #4a5568; color: white; border: none; border-radius: 3px; cursor: pointer;">
+                                ${company.active ? 'Disable' : 'Enable'}
+                            </button>
+                            <button onclick="removeCompany('${company.name}')" style="font-size: 12px; padding: 5px 10px; background: #dc3545; color: white; border: none; border-radius: 3px; cursor: pointer;">Remove</button>
+                        </div>
+                    </div>`
+                ).join('');
+            }
+        }
+
+        function loadConfiguration() {
+            const token = localStorage.getItem('auth_token');
+            if (!token) {
+                console.log('No auth token, skipping config load');
+                return;
+            }
+
+            fetch('/api/autoscraping/config', {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    autoScrapingConfig = { ...autoScrapingConfig, ...data.config };
+                    populateForm();
+                } else {
+                    populateForm(); // Use defaults
+                }
+            })
+            .catch(error => {
+                console.error('Error loading configuration:', error);
+                populateForm(); // Use defaults
+            });
+        }
+
+        function populateForm() {
+            const enableScraping = document.getElementById('enableScraping');
+            const scheduleTime = document.getElementById('scheduleTime');
+            const excludeKeywords = document.getElementById('excludeKeywords');
+            const location = document.getElementById('location');
+            const distance = document.getElementById('distance');
+            const aiEnabled = document.getElementById('aiEnabled');
+            const aiModel = document.getElementById('aiModel');
+            const aiPrompt = document.getElementById('aiPrompt');
+
+            if (enableScraping) enableScraping.checked = autoScrapingConfig.enabled;
+            if (scheduleTime) scheduleTime.value = autoScrapingConfig.schedule_time;
+            if (excludeKeywords) excludeKeywords.value = autoScrapingConfig.exclude_keywords || '';
+            if (location) location.value = autoScrapingConfig.location || '';
+            if (distance) distance.value = autoScrapingConfig.distance || 25;
+            if (aiEnabled) aiEnabled.checked = autoScrapingConfig.ai_enabled;
+            if (aiModel) aiModel.value = autoScrapingConfig.ai_model || 'gpt-4.1-mini';
+            if (aiPrompt) aiPrompt.value = autoScrapingConfig.ai_prompt || '';
+
+            renderSearchTerms();
+            renderCompanies();
+            updateStatus();
+        }
+
+        function updateStatus() {
+            const statusIndicator = document.getElementById('statusIndicator');
+            const statusIcon = document.getElementById('statusIcon');
+            const statusText = document.getElementById('statusText');
+
+            if (statusIndicator && statusIcon && statusText) {
+                if (autoScrapingConfig.enabled) {
+                    statusIndicator.style.background = '#d4edda';
+                    statusIcon.textContent = '✅';
+                    statusText.textContent = `Auto-scraping is ACTIVE - runs daily at ${autoScrapingConfig.schedule_time}`;
+                    statusText.style.color = '#155724';
+                } else {
+                    statusIndicator.style.background = '#f8d7da';
+                    statusIcon.textContent = '⏸️';
+                    statusText.textContent = 'Auto-scraping is currently DISABLED';
+                    statusText.style.color = '#721c24';
+                }
+            }
+        }
+
+        function saveConfiguration() {
+            try {
+                collectFormData();
+
+                if (!autoScrapingConfig.schedule_time || !autoScrapingConfig.max_results || !autoScrapingConfig.sites || autoScrapingConfig.sites.length === 0) {
+                    showNotification('Please fill in all required fields', 'error');
+                    return;
+                }
+
+                const token = localStorage.getItem('auth_token');
+                fetch('/api/autoscraping/config', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(autoScrapingConfig)
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        return response.text().then(text => {
+                            throw new Error(`HTTP ${response.status}: ${text}`);
+                        });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.success) {
+                        showNotification('Configuration saved successfully!', 'success');
+                        updateStatus();
+                    } else {
+                        showNotification('Error saving configuration: ' + (data.message || 'Unknown error'), 'error');
+                    }
+                })
+                .catch(error => {
+                    console.error('Save configuration error:', error);
+                    showNotification('Error saving configuration: ' + error.message, 'error');
+                });
+            } catch (error) {
+                console.error('Save configuration error:', error);
+                showNotification('Error preparing configuration: ' + error.message, 'error');
+            }
+        }
+
+        function collectFormData() {
+            try {
+                autoScrapingConfig.enabled = document.getElementById('enableScraping')?.checked || false;
+                autoScrapingConfig.schedule_time = document.getElementById('scheduleTime')?.value || '02:00';
+                autoScrapingConfig.max_results = 1000;
+                autoScrapingConfig.sites = ['indeed', 'linkedin'];
+                autoScrapingConfig.exclude_keywords = document.getElementById('excludeKeywords')?.value || '';
+                autoScrapingConfig.location = document.getElementById('location')?.value || '';
+                autoScrapingConfig.distance = parseInt(document.getElementById('distance')?.value) || 25;
+                autoScrapingConfig.min_relevance_score = 60;
+                autoScrapingConfig.days_old = 7;
+                autoScrapingConfig.ai_enabled = document.getElementById('aiEnabled')?.checked || false;
+                autoScrapingConfig.ai_model = document.getElementById('aiModel')?.value || 'gpt-4.1-mini';
+                autoScrapingConfig.ai_prompt = document.getElementById('aiPrompt')?.value || '';
+                autoScrapingConfig.target_roles = 'product manager, engineer, software developer';
+                autoScrapingConfig.exclude_executive = true;
+                autoScrapingConfig.executive_keywords = 'president, director, vp, vice president, chief, head of';
+                autoScrapingConfig.seniority_filter = '';
+                autoScrapingConfig.default_locations = 'USA';
+
+                if (autoScrapingConfig.sites.length === 0) {
+                    autoScrapingConfig.sites = ['indeed'];
+                }
+            } catch (error) {
+                console.error('Error collecting form data:', error);
+                showNotification('Error collecting form data: ' + error.message, 'error');
+            }
+        }
+
+        function runNow() {
+            if (!confirm('Are you sure you want to run job scraping now with current settings?')) {
+                return;
+            }
+
+            collectFormData();
+
+            const token = localStorage.getItem('auth_token');
+            const headers = {
+                'Content-Type': 'application/json'
+            };
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+
+            fetch('/api/autoscraping/run', {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(autoScrapingConfig)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showNotification('Scraping started! Check your email for results.', 'success');
+                } else {
+                    showNotification('Failed to start scraping: ' + data.message, 'error');
+                }
+            })
+            .catch(error => {
+                showNotification('Error starting scraping: ' + error.message, 'error');
+            });
+        }
+
+        function testConfiguration() {
+            collectFormData();
+
+            fetch('/api/autoscraping/test', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(autoScrapingConfig)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showNotification('Test completed! Check logs for results.', 'success');
+                } else {
+                    showNotification('Test failed: ' + data.message, 'error');
+                }
+            })
+            .catch(error => {
+                showNotification('Test error: ' + error.message, 'error');
+            });
+        }
+
+
+        // Use the existing notification system from the main dashboard
+        // The showNotification function is already defined in the main dashboard
+
+        // Auto-scraping specific functions
         function initializeAutoScrapingEventListeners() {
             // Search terms input
             const searchTermsInput = document.getElementById('searchTermsInput');
@@ -3173,7 +3605,7 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
 
         // Fix the existing loadAutoScrapingConfig function to use the new name
         function loadAutoScrapingConfig() {
-            showAutoScrapingContent();
+            loadAutoScrapingConfiguration();
         }
 
 
