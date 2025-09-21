@@ -229,7 +229,7 @@
 
         .job-list-header {
             display: grid;
-            grid-template-columns: 40px 1fr 200px 150px 120px 100px;
+            grid-template-columns: 40px 1fr 200px 150px 120px 100px 100px;
             gap: 16px;
             padding: 12px 24px;
             background: #2d3561;
@@ -246,7 +246,7 @@
 
         .job-row {
             display: grid;
-            grid-template-columns: 40px 1fr 200px 150px 120px 100px;
+            grid-template-columns: 40px 1fr 200px 150px 120px 100px 100px;
             gap: 16px;
             padding: 16px 24px;
             border-bottom: 1px solid #2d3561;
@@ -257,6 +257,7 @@
 
         .job-row:hover {
             background-color: #2d3561;
+            cursor: pointer;
         }
 
         .job-row.selected {
@@ -299,6 +300,20 @@
             font-weight: 600;
             color: #ffffff;
             line-height: 1.3;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .saved-indicator {
+            font-size: 10px;
+            font-weight: 500;
+            color: #ffffff;
+            background: #48bb78;
+            padding: 2px 6px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
 
         .job-company {
@@ -538,7 +553,7 @@
 
             .job-list-header,
             .job-row {
-                grid-template-columns: 40px 1fr 100px;
+                grid-template-columns: 40px 1fr 80px;
             }
 
             .job-list-header .location-col,
@@ -546,7 +561,8 @@
             .job-list-header .score-col,
             .job-row .job-location,
             .job-row .job-type,
-            .job-row .job-score {
+            .job-row .job-score,
+            .job-row .job-date {
                 display: none;
             }
         }
@@ -684,6 +700,32 @@
     </style>
 </head>
 <body>
+    <!-- Job Description Modal -->
+    <div id="jobModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.8); z-index: 2000; align-items: center; justify-content: center;">
+        <div style="background: #1a1b3a; border-radius: 12px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5); max-width: 800px; width: 90%; max-height: 90%; overflow: hidden; display: flex; flex-direction: column;">
+            <!-- Modal Header -->
+            <div style="padding: 24px; border-bottom: 1px solid #2d3561; display: flex; justify-content: space-between; align-items: center;">
+                <h2 id="jobModalTitle" style="color: #ffffff; font-size: 20px; font-weight: 600; margin: 0;"></h2>
+                <button onclick="closeJobModal()" style="background: none; border: none; color: #a0aec0; font-size: 24px; cursor: pointer; padding: 4px;">&times;</button>
+            </div>
+
+            <!-- Modal Content -->
+            <div style="flex: 1; overflow-y: auto; padding: 24px;">
+                <!-- Job Details -->
+                <div id="jobModalContent" style="color: #e2e8f0;">
+                    <!-- Content will be populated by JavaScript -->
+                </div>
+            </div>
+
+            <!-- Modal Footer -->
+            <div style="padding: 20px 24px; border-top: 1px solid #2d3561; display: flex; gap: 12px; justify-content: flex-end;">
+                <button onclick="closeJobModal()" style="padding: 8px 16px; border: 1px solid #4a5568; border-radius: 6px; background: #2d3561; color: #cbd5e0; cursor: pointer;">Close</button>
+                <button id="jobModalSaveBtn" onclick="saveJobFromModal()" style="padding: 8px 16px; border: none; border-radius: 6px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #ffffff; cursor: pointer; font-weight: 500;">Save Job</button>
+                <a id="jobModalApplyBtn" href="#" target="_blank" style="padding: 8px 16px; border: none; border-radius: 6px; background: #48bb78; color: #ffffff; text-decoration: none; font-weight: 500; display: inline-block;">Apply Now</a>
+            </div>
+        </div>
+    </div>
+
     <!-- Login Modal -->
     <div id="loginModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.8); z-index: 2000; align-items: center; justify-content: center;">
         <div style="background: #1a1b3a; padding: 40px; border-radius: 12px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5); max-width: 400px; width: 90%;">
@@ -799,6 +841,7 @@
                     <div class="type-col">Type</div>
                     <div class="score-col">Score</div>
                     <div>Date</div>
+                    <div>Actions</div>
                 </div>
 
                 <!-- Job List -->
@@ -827,6 +870,8 @@
         let jobs = [];
         let selectedJobs = new Set();
         let currentUser = null;
+        let savedJobUrls = new Set(); // Track saved job URLs for indicators
+        let currentModalJob = null; // Track currently displayed job in modal
 
         function displayUserInfo(userData) {
             const userInfo = document.getElementById('userInfo');
@@ -918,10 +963,39 @@
         async function initializeApp() {
             const isAuthenticated = await checkAuthStatus();
             if (isAuthenticated) {
+                // Load saved jobs for tracking indicators
+                await loadSavedJobsForTracking();
+
                 // Only load data for job-related views
                 if (currentView === 'filtered' || currentView === 'saved') {
                     loadJobData();
                 }
+            }
+        }
+
+        async function loadSavedJobsForTracking() {
+            try {
+                const token = localStorage.getItem('auth_token');
+                if (!token) return;
+
+                const response = await fetch('/user/saved-jobs?limit=1000', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.success && data.saved_jobs) {
+                        savedJobUrls.clear();
+                        data.saved_jobs.forEach(job => {
+                            if (job.job_data && job.job_data.job_url) {
+                                savedJobUrls.add(job.job_data.job_url);
+                            }
+                        });
+                        console.log('Loaded', savedJobUrls.size, 'saved job URLs for tracking');
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading saved jobs for tracking:', error);
             }
         }
 
@@ -1003,6 +1077,10 @@
             // Only load data for job-related views
             if (view === 'filtered' || view === 'saved') {
                 loadJobData();
+                // Refresh saved jobs tracking when switching to filtered view
+                if (view === 'filtered') {
+                    loadSavedJobsForTracking();
+                }
             }
         }
 
@@ -1117,14 +1195,19 @@
                 const checkbox = row.querySelector('.job-checkbox');
                 const jobId = row.dataset.jobId;
 
-                checkbox.addEventListener('click', (e) => {
-                    e.stopPropagation();
+                // Make entire row clickable for selection
+                row.addEventListener('click', (e) => {
+                    // Don't trigger selection if clicking on action buttons or links
+                    if (e.target.closest('.action-btn') || e.target.closest('a')) {
+                        return;
+                    }
                     toggleJobSelection(jobId);
                 });
 
-                row.addEventListener('click', () => {
-                    // Handle job details view
-                    console.log('Open job details for:', jobId);
+                // Checkbox click should still work but not double-toggle
+                checkbox.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    // Selection is already handled by row click
                 });
             });
         }
@@ -1180,7 +1263,6 @@
                 }
             } else if (currentView === 'saved') {
                 // For saved jobs, try to extract score from notes or use job-level scores
-                console.log('Processing saved job score for:', actualJob.title, 'Notes:', job.notes);
 
                 if (job.notes && job.notes.includes('Enhanced Score:')) {
                     const scoreMatch = job.notes.match(/Enhanced Score:\s*(\d+(?:\.\d+)?)/);
@@ -1189,7 +1271,6 @@
                         scoreText = Math.round(score);
                         if (score >= 80) scoreClass = 'score-high';
                         else if (score >= 60) scoreClass = 'score-medium';
-                        console.log('Found enhanced score in notes:', score);
                     }
                 }
 
@@ -1208,7 +1289,6 @@
                             scoreText = 'Low';
                             scoreClass = 'score-low';
                         }
-                        console.log('Found AI relevance in notes:', relevance);
                     }
                 }
 
@@ -1219,9 +1299,6 @@
                         scoreText = Math.round(score);
                         if (score >= 80) scoreClass = 'score-high';
                         else if (score >= 60) scoreClass = 'score-medium';
-                        console.log('Found fallback score:', score);
-                    } else {
-                        console.log('No score found in job object. Available fields:', Object.keys(job));
                     }
                 }
             } else {
@@ -1264,11 +1341,18 @@
                 jobTypeClass = 'remote';
             }
 
+            // Check if this job is already saved
+            const isSaved = actualJob.job_url && savedJobUrls.has(actualJob.job_url);
+            const savedIndicator = isSaved ? '<span class="saved-indicator">Saved</span>' : '';
+
             return `
                 <div class="job-row ${isSelected ? 'selected' : ''}" data-job-id="${jobId}">
                     <div class="job-checkbox ${isSelected ? 'checked' : ''}"></div>
                     <div class="job-info">
-                        <div class="job-title">${actualJob.title || 'No Title'}</div>
+                        <div class="job-title">
+                            ${actualJob.title || 'No Title'}
+                            ${savedIndicator}
+                        </div>
                         <div class="job-company">
                             <div class="company-logo"></div>
                             <span>${actualJob.company || 'Unknown Company'}</span>
@@ -1280,6 +1364,11 @@
                         <span class="score-badge ${scoreClass}">${scoreText}</span>
                     </div>
                     <div class="job-date">${dateText}</div>
+                    <div class="job-actions">
+                        <button class="action-btn view-jd-btn" onclick="viewJobDescription('${jobId}')">
+                            👁️ View JD
+                        </button>
+                    </div>
                 </div>
             `;
         }
@@ -1484,6 +1573,13 @@
 
                 if (successCount > 0) {
                     showNotification(`${successCount} job(s) saved successfully!`, 'success');
+
+                    // Update saved jobs tracking and refresh indicators
+                    await loadSavedJobsForTracking();
+
+                    // Re-render current view to show updated saved indicators
+                    renderJobs();
+
                     // Add small delay before reload to ensure save operations complete
                     setTimeout(() => {
                         if (currentView === 'saved') {
@@ -1684,6 +1780,257 @@
                 timeout = setTimeout(later, wait);
             };
         }
+
+        // Job Description Modal Functions
+        function viewJobDescription(jobId) {
+            const job = jobs.find(j => j.id === jobId);
+            if (!job) {
+                showNotification('Job not found', 'error');
+                return;
+            }
+
+            currentModalJob = job;
+            populateJobModal(job);
+            showJobModal();
+        }
+
+        function populateJobModal(job) {
+            // Handle different data structures: filtered jobs vs saved jobs
+            let actualJob;
+            if (currentView === 'filtered' && job.scraped_job) {
+                actualJob = job.scraped_job;
+            } else if (currentView === 'saved' && job.job_data) {
+                actualJob = job.job_data;
+            } else {
+                actualJob = job;
+            }
+
+            // Populate modal title
+            document.getElementById('jobModalTitle').textContent = actualJob.title || 'Job Details';
+
+            // Populate modal content
+            const content = document.getElementById('jobModalContent');
+            content.innerHTML = `
+                <div style="display: grid; gap: 24px;">
+                    <!-- Basic Info -->
+                    <div>
+                        <h3 style="color: #ffffff; font-size: 18px; margin-bottom: 16px; border-bottom: 1px solid #2d3561; padding-bottom: 8px;">Job Information</h3>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+                            <div>
+                                <strong style="color: #a0aec0;">Company:</strong><br>
+                                <span style="color: #ffffff;">${actualJob.company || 'Not specified'}</span>
+                            </div>
+                            <div>
+                                <strong style="color: #a0aec0;">Location:</strong><br>
+                                <span style="color: #ffffff;">${actualJob.location || 'Not specified'}</span>
+                            </div>
+                            <div>
+                                <strong style="color: #a0aec0;">Job Type:</strong><br>
+                                <span style="color: #ffffff;">${actualJob.job_type || 'Not specified'}</span>
+                            </div>
+                            <div>
+                                <strong style="color: #a0aec0;">Remote:</strong><br>
+                                <span style="color: #ffffff;">${actualJob.is_remote ? 'Yes' : 'No'}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Salary Info -->
+                    ${actualJob.min_amount || actualJob.max_amount ? `
+                    <div>
+                        <h3 style="color: #ffffff; font-size: 18px; margin-bottom: 16px; border-bottom: 1px solid #2d3561; padding-bottom: 8px;">Compensation</h3>
+                        <div style="color: #ffffff;">
+                            ${formatSalaryForModal(actualJob.min_amount, actualJob.max_amount, actualJob.currency)}
+                        </div>
+                    </div>
+                    ` : ''}
+
+                    <!-- AI Scoring (for filtered jobs) -->
+                    ${currentView === 'filtered' && (job.enhanced_score || job.ai_relevance) ? `
+                    <div>
+                        <h3 style="color: #ffffff; font-size: 18px; margin-bottom: 16px; border-bottom: 1px solid #2d3561; padding-bottom: 8px;">AI Analysis</h3>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px;">
+                            ${job.enhanced_score ? `
+                            <div>
+                                <strong style="color: #a0aec0;">Enhanced Score:</strong><br>
+                                <span style="color: #ffffff; font-size: 20px; font-weight: 600;">${Math.round(job.enhanced_score)}/100</span>
+                            </div>
+                            ` : ''}
+                            ${job.ai_relevance ? `
+                            <div>
+                                <strong style="color: #a0aec0;">AI Relevance:</strong><br>
+                                <span style="color: #ffffff; font-weight: 600;">${job.ai_relevance}</span>
+                            </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                    ` : ''}
+
+                    <!-- Job Description -->
+                    <div>
+                        <h3 style="color: #ffffff; font-size: 18px; margin-bottom: 16px; border-bottom: 1px solid #2d3561; padding-bottom: 8px;">Job Description</h3>
+                        <div style="color: #e2e8f0; line-height: 1.6; white-space: pre-wrap;">
+                            ${actualJob.description || 'No description available'}
+                        </div>
+                    </div>
+
+                    <!-- Job URL -->
+                    ${actualJob.job_url ? `
+                    <div>
+                        <h3 style="color: #ffffff; font-size: 18px; margin-bottom: 16px; border-bottom: 1px solid #2d3561; padding-bottom: 8px;">Application Link</h3>
+                        <a href="${actualJob.job_url}" target="_blank" style="color: #667eea; text-decoration: none; word-break: break-all;">
+                            ${actualJob.job_url}
+                        </a>
+                    </div>
+                    ` : ''}
+                </div>
+            `;
+
+            // Update footer buttons
+            const applyBtn = document.getElementById('jobModalApplyBtn');
+            const saveBtn = document.getElementById('jobModalSaveBtn');
+
+            if (actualJob.job_url) {
+                applyBtn.href = actualJob.job_url;
+                applyBtn.style.display = 'inline-block';
+            } else {
+                applyBtn.style.display = 'none';
+            }
+
+            // Check if job is already saved
+            const isSaved = actualJob.job_url && savedJobUrls.has(actualJob.job_url);
+            if (isSaved) {
+                saveBtn.textContent = 'Already Saved';
+                saveBtn.disabled = true;
+                saveBtn.style.opacity = '0.6';
+            } else {
+                saveBtn.textContent = 'Save Job';
+                saveBtn.disabled = false;
+                saveBtn.style.opacity = '1';
+            }
+        }
+
+        function formatSalaryForModal(minAmount, maxAmount, currency) {
+            if (!minAmount && !maxAmount) return 'Not specified';
+
+            const curr = currency || 'USD';
+            const formatter = new Intl.NumberFormat('en-US', {
+                style: 'currency',
+                currency: curr,
+                minimumFractionDigits: 0
+            });
+
+            if (minAmount && maxAmount) {
+                return `${formatter.format(minAmount)} - ${formatter.format(maxAmount)} per year`;
+            } else if (minAmount) {
+                return `From ${formatter.format(minAmount)} per year`;
+            } else {
+                return `Up to ${formatter.format(maxAmount)} per year`;
+            }
+        }
+
+        function showJobModal() {
+            const modal = document.getElementById('jobModal');
+            modal.style.display = 'flex';
+            document.body.style.overflow = 'hidden'; // Prevent background scrolling
+        }
+
+        function closeJobModal() {
+            const modal = document.getElementById('jobModal');
+            modal.style.display = 'none';
+            document.body.style.overflow = 'auto'; // Restore scrolling
+            currentModalJob = null;
+        }
+
+        async function saveJobFromModal() {
+            if (!currentModalJob) return;
+
+            try {
+                // Use the same logic as bulk save but for single job
+                const token = localStorage.getItem('auth_token');
+                const job = currentModalJob;
+
+                let jobData;
+                if (currentView === 'filtered' && job.scraped_job) {
+                    jobData = {
+                        job_data: {
+                            title: job.scraped_job.title,
+                            company: job.scraped_job.company,
+                            location: job.scraped_job.location,
+                            job_url: job.scraped_job.job_url,
+                            description: job.scraped_job.description,
+                            job_type: job.scraped_job.job_type,
+                            is_remote: job.scraped_job.is_remote,
+                            min_amount: job.scraped_job.min_amount,
+                            max_amount: job.scraped_job.max_amount,
+                            currency: job.scraped_job.currency,
+                            date_posted: job.scraped_job.date_posted,
+                            site: job.scraped_job.site
+                        },
+                        notes: `Enhanced Score: ${job.enhanced_score || 'N/A'}, AI Relevance: ${job.ai_relevance || 'N/A'}`,
+                        tags: ['filtered', 'ai-scored']
+                    };
+                } else if (currentView === 'saved' && job.job_data) {
+                    jobData = {
+                        job_data: job.job_data,
+                        notes: `Saved from dashboard`,
+                        tags: ['dashboard']
+                    };
+                } else {
+                    jobData = {
+                        job_data: job,
+                        notes: `Saved from dashboard`,
+                        tags: ['dashboard']
+                    };
+                }
+
+                const response = await fetch('/user/save-job', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(jobData)
+                });
+
+                const data = await response.json();
+                if (data.success) {
+                    showNotification('Job saved successfully!', 'success');
+
+                    // Update saved jobs tracking
+                    await loadSavedJobsForTracking();
+
+                    // Update modal UI
+                    const saveBtn = document.getElementById('jobModalSaveBtn');
+                    saveBtn.textContent = 'Already Saved';
+                    saveBtn.disabled = true;
+                    saveBtn.style.opacity = '0.6';
+
+                    // Re-render jobs to show updated saved indicators
+                    renderJobs();
+                } else {
+                    showNotification('Failed to save job: ' + (data.message || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                console.error('Error saving job:', error);
+                showNotification('Failed to save job: ' + error.message, 'error');
+            }
+        }
+
+        // Close modal when clicking outside
+        document.addEventListener('click', function(e) {
+            const modal = document.getElementById('jobModal');
+            if (e.target === modal) {
+                closeJobModal();
+            }
+        });
+
+        // Close modal with Escape key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                closeJobModal();
+            }
+        });
     </script>
 </body>
 </html>
