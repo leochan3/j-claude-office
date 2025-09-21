@@ -3788,14 +3788,33 @@ async def save_autoscraping_config(config: dict, current_user: User = Depends(ge
                         company.is_active = company_data.get("active", True)
                         print(f"🔄 Updated company in database: {company_data['name']}")
 
-        # Save user-specific configuration to database (excluding companies)
-        config_to_save = {k: v for k, v in config.items() if k not in ["companies", "include_filtered", "exclude_executive", "executive_keywords", "seniority_filter", "default_locations"]}
+        # Save user-specific configuration to database (now INCLUDING companies for user-specific scraping)
+        config_to_save = {k: v for k, v in config.items() if k not in ["include_filtered", "exclude_executive", "executive_keywords", "seniority_filter", "default_locations"]}
 
         # Set the notification email to user's email if not provided
         if not config_to_save.get("notification_email"):
             config_to_save["notification_email"] = current_user.email
 
+        # Debug logging to see what's being saved
+        print(f"🔍 SAVING USER CONFIG for {current_user.email}:")
+        print(f"   📋 Companies: {config_to_save.get('companies', 'NOT FOUND')}")
+        print(f"   🔍 Search terms: {config_to_save.get('search_terms', 'NOT FOUND')}")
+        print(f"   ⏰ Schedule time: {config_to_save.get('schedule_time', 'NOT FOUND')}")
+        print(f"   ✅ Enabled: {config_to_save.get('enabled', 'NOT FOUND')}")
+
         UserService.create_or_update_autoscraping_config(db, current_user.id, config_to_save)
+
+        # Refresh the scheduler to pick up new user configurations without restart
+        try:
+            from scheduler import auto_scraper
+            if auto_scraper.is_running:
+                # Clear existing schedules and reload user configs
+                import schedule
+                schedule.clear()
+                auto_scraper.schedule_daily_scraping()
+                print(f"🔄 SCHEDULER REFRESHED for {current_user.email}")
+        except Exception as e:
+            print(f"⚠️ Failed to refresh scheduler: {e}")
 
         return {"success": True, "message": "Configuration saved successfully"}
     except HTTPException:
