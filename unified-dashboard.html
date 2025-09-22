@@ -977,11 +977,20 @@
                     </div>
                     <div class="filter-header salary-col">
                         Salary
-                        <select class="column-filter" id="salaryFilter" onchange="applyFilters()">
-                            <option value="">All Salaries</option>
-                            <option value="specified">With Salary</option>
-                            <option value="not_specified">No Salary Listed</option>
-                        </select>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <select class="column-filter" id="salaryTypeFilter" onchange="handleSalaryTypeChange()">
+                                <option value="all">All Salaries</option>
+                                <option value="specified">With Salary</option>
+                                <option value="not_specified">No Salary Listed</option>
+                                <option value="range">By Range</option>
+                            </select>
+                            <div id="salaryRangeFilter" style="display: none;">
+                                <input type="text" id="minSalaryInput" placeholder="Min (e.g. 70k)" style="width: 60px; margin-bottom: 2px;"
+                                       onkeyup="setTimeout(applyFilters, 300)" onchange="applyFilters()">
+                                <input type="text" id="maxSalaryInput" placeholder="Max (e.g. 110k)" style="width: 60px;"
+                                       onkeyup="setTimeout(applyFilters, 300)" onchange="applyFilters()">
+                            </div>
+                        </div>
                     </div>
                     <div class="filter-header">
                         Posted Date
@@ -1048,7 +1057,9 @@
             state: '',
             zipcode: '',
             radius: '25',
-            salary: '',
+            salaryType: 'all',
+            minSalary: '',
+            maxSalary: '',
             date: ''
         };
         let appliedJobUrls = new Set(); // Track applied job URLs for indicators
@@ -3257,23 +3268,71 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
 
             let city, state, country;
 
+            // Define countries that should not be treated as states
+            const countries = new Set([
+                'UNITED STATES', 'US', 'USA', 'CANADA', 'CA', 'UNITED KINGDOM', 'UK',
+                'AUSTRALIA', 'GERMANY', 'FRANCE', 'INDIA', 'CHINA', 'JAPAN', 'BRAZIL'
+            ]);
+
+            // Define valid US state abbreviations and names
+            const validStates = new Set([
+                'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID',
+                'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS',
+                'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK',
+                'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV',
+                'WI', 'WY', 'DC',
+                'ALABAMA', 'ALASKA', 'ARIZONA', 'ARKANSAS', 'CALIFORNIA', 'COLORADO',
+                'CONNECTICUT', 'DELAWARE', 'FLORIDA', 'GEORGIA', 'HAWAII', 'IDAHO',
+                'ILLINOIS', 'INDIANA', 'IOWA', 'KANSAS', 'KENTUCKY', 'LOUISIANA', 'MAINE',
+                'MARYLAND', 'MASSACHUSETTS', 'MICHIGAN', 'MINNESOTA', 'MISSISSIPPI',
+                'MISSOURI', 'MONTANA', 'NEBRASKA', 'NEVADA', 'NEW HAMPSHIRE', 'NEW JERSEY',
+                'NEW MEXICO', 'NEW YORK', 'NORTH CAROLINA', 'NORTH DAKOTA', 'OHIO',
+                'OKLAHOMA', 'OREGON', 'PENNSYLVANIA', 'RHODE ISLAND', 'SOUTH CAROLINA',
+                'SOUTH DAKOTA', 'TENNESSEE', 'TEXAS', 'UTAH', 'VERMONT', 'VIRGINIA',
+                'WASHINGTON', 'WEST VIRGINIA', 'WISCONSIN', 'WYOMING'
+            ]);
+
             if (parts.length >= 2) {
                 city = parts[0];
 
-                // Handle different formats:
-                // "San Jose, CA" or "San Jose, CA, US"
                 if (parts.length === 2) {
-                    state = parts[1];
-                    country = 'US'; // Default assumption
+                    const secondPart = parts[1].toUpperCase();
+
+                    // Check if second part is a country
+                    if (countries.has(secondPart)) {
+                        // Format: "New York, United States" - try to infer state from city
+                        country = secondPart;
+
+                        // Map well-known cities to states when country is specified
+                        const cityToState = {
+                            'NEW YORK': 'NY', 'MANHATTAN': 'NY', 'BROOKLYN': 'NY', 'QUEENS': 'NY',
+                            'LOS ANGELES': 'CA', 'SAN FRANCISCO': 'CA', 'SAN JOSE': 'CA', 'OAKLAND': 'CA',
+                            'CHICAGO': 'IL', 'HOUSTON': 'TX', 'DALLAS': 'TX', 'AUSTIN': 'TX',
+                            'PHOENIX': 'AZ', 'PHILADELPHIA': 'PA', 'SAN ANTONIO': 'TX', 'SAN DIEGO': 'CA',
+                            'BOSTON': 'MA', 'SEATTLE': 'WA', 'DENVER': 'CO', 'WASHINGTON': 'DC',
+                            'MIAMI': 'FL', 'ATLANTA': 'GA', 'DETROIT': 'MI', 'PORTLAND': 'OR',
+                            'LAS VEGAS': 'NV', 'MINNEAPOLIS': 'MN', 'BALTIMORE': 'MD', 'NASHVILLE': 'TN'
+                        };
+
+                        const cityUpper = city.toUpperCase();
+                        state = cityToState[cityUpper] || null;
+                    } else if (validStates.has(secondPart)) {
+                        // Format: "San Jose, CA" - valid state
+                        state = secondPart;
+                        country = 'US';
+                    } else {
+                        // Assume it's a state/region for non-US
+                        state = secondPart;
+                        country = 'Unknown';
+                    }
                 } else if (parts.length >= 3) {
-                    state = parts[1];
-                    country = parts[2];
+                    // Format: "San Jose, CA, US"
+                    state = parts[1].toUpperCase();
+                    country = parts[2].toUpperCase();
                 }
 
-                // Clean up state codes (handle both full names and abbreviations)
-                if (state) {
-                    state = state.toUpperCase();
-                    // Convert full state names to abbreviations if needed
+                // Convert full state names to abbreviations
+                if (state && validStates.has(state)) {
                     const stateAbbreviations = {
                         'CALIFORNIA': 'CA', 'NEW YORK': 'NY', 'TEXAS': 'TX', 'FLORIDA': 'FL',
                         'ILLINOIS': 'IL', 'PENNSYLVANIA': 'PA', 'OHIO': 'OH', 'GEORGIA': 'GA',
@@ -3318,7 +3377,9 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                 }
 
                 const parsed = parseLocation(actualJob.location);
-                if (parsed.state) {
+
+                // Only add valid US states (not countries or null values)
+                if (parsed.state && parsed.state !== 'UNITED STATES' && parsed.state !== 'US' && parsed.state !== 'USA') {
                     states.add(parsed.state);
                 }
                 if (parsed.isRemote) {
@@ -3326,6 +3387,60 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                 }
             });
             return Array.from(states).sort();
+        }
+
+        // Salary parsing utilities
+        function parseSalaryInput(input) {
+            if (!input || typeof input !== 'string') return null;
+
+            // Remove spaces and convert to lowercase for parsing
+            const cleanInput = input.trim().toLowerCase();
+
+            // Handle various formats: 70k, 70000, $70k, $70,000, 70K, etc.
+            let numericValue = cleanInput
+                .replace(/[$,\s]/g, '') // Remove $, commas, spaces
+                .replace(/k$/, '000')   // Convert k to 000
+                .replace(/m$/, '000000'); // Convert m to 000000
+
+            const parsed = parseFloat(numericValue);
+            return isNaN(parsed) ? null : parsed;
+        }
+
+        function parseSalaryData(job) {
+            // Handle different data structures for filtered vs saved jobs
+            let actualJob;
+            if (currentView === 'filtered' && job.scraped_job) {
+                actualJob = job.scraped_job;
+            } else if (currentView === 'saved' && job.job_data) {
+                actualJob = job.job_data;
+            } else {
+                actualJob = job;
+            }
+
+            const minAmount = actualJob.min_amount;
+            const maxAmount = actualJob.max_amount;
+
+            return {
+                hasSpecifiedSalary: minAmount || maxAmount,
+                minSalary: minAmount ? parseFloat(minAmount) : null,
+                maxSalary: maxAmount ? parseFloat(maxAmount) : null,
+                averageSalary: (minAmount && maxAmount) ? (parseFloat(minAmount) + parseFloat(maxAmount)) / 2 : (minAmount ? parseFloat(minAmount) : (maxAmount ? parseFloat(maxAmount) : null))
+            };
+        }
+
+        function handleSalaryTypeChange() {
+            const typeFilter = document.getElementById('salaryTypeFilter').value;
+
+            // Hide salary range inputs
+            document.getElementById('salaryRangeFilter').style.display = 'none';
+
+            // Show range inputs if range is selected
+            if (typeFilter === 'range') {
+                document.getElementById('salaryRangeFilter').style.display = 'block';
+            }
+
+            // Apply filters after changing type
+            applyFilters();
         }
 
         // Location filtering functions
@@ -3386,11 +3501,14 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
             document.getElementById('stateFilter').value = '';
             document.getElementById('zipcodeInput').value = '';
             document.getElementById('radiusSelect').value = '25';
-            document.getElementById('salaryFilter').value = '';
+            document.getElementById('salaryTypeFilter').value = 'all';
+            document.getElementById('minSalaryInput').value = '';
+            document.getElementById('maxSalaryInput').value = '';
             document.getElementById('dateFilter').value = '';
 
-            // Reset location filter display
+            // Reset filter displays
             handleLocationTypeChange();
+            handleSalaryTypeChange();
 
             // Reset activeFilters object
             activeFilters = {
@@ -3401,7 +3519,9 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                 state: '',
                 zipcode: '',
                 radius: '25',
-                salary: '',
+                salaryType: 'all',
+                minSalary: '',
+                maxSalary: '',
                 date: ''
             };
 
@@ -3415,7 +3535,6 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
             // Get current filter values
             activeFilters.job = document.getElementById('jobFilter')?.value || '';
             activeFilters.company = document.getElementById('companyFilter')?.value || '';
-            activeFilters.salary = document.getElementById('salaryFilter')?.value || '';
             activeFilters.date = document.getElementById('dateFilter')?.value || '';
 
             // Handle different location filter types
@@ -3424,6 +3543,11 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
             activeFilters.state = document.getElementById('stateFilter')?.value || '';
             activeFilters.zipcode = document.getElementById('zipcodeInput')?.value || '';
             activeFilters.radius = document.getElementById('radiusSelect')?.value || '25';
+
+            // Handle different salary filter types
+            activeFilters.salaryType = document.getElementById('salaryTypeFilter')?.value || 'all';
+            activeFilters.minSalary = document.getElementById('minSalaryInput')?.value || '';
+            activeFilters.maxSalary = document.getElementById('maxSalaryInput')?.value || '';
 
             console.log('Applying filters:', activeFilters);
             console.log('Total jobs before filtering:', allJobs.length);
@@ -3441,7 +3565,7 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
 
             console.log('Jobs after filtering:', filteredJobs.length);
 
-            // Log sample location data for analysis
+            // Log sample location and salary data for analysis
             if (filteredJobs.length > 0) {
                 console.log('Sample location formats:', filteredJobs.slice(0, 10).map(job => {
                     let actualJob;
@@ -3453,6 +3577,23 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                         actualJob = job;
                     }
                     return actualJob.location;
+                }));
+
+                console.log('Sample salary data:', filteredJobs.slice(0, 5).map(job => {
+                    let actualJob;
+                    if (currentView === 'filtered' && job.scraped_job) {
+                        actualJob = job.scraped_job;
+                    } else if (currentView === 'saved' && job.job_data) {
+                        actualJob = job.job_data;
+                    } else {
+                        actualJob = job;
+                    }
+                    return {
+                        title: actualJob.title,
+                        min_amount: actualJob.min_amount,
+                        max_amount: actualJob.max_amount,
+                        parsed: parseSalaryData(job)
+                    };
                 }));
             }
 
@@ -3590,25 +3731,62 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
         }
 
         function matchesSalaryFilter(job) {
-            if (!activeFilters.salary) return true;
+            // If no salary filtering is applied, show all jobs
+            if (activeFilters.salaryType === 'all') return true;
 
-            // Handle different data structures for filtered vs saved jobs
-            let actualJob;
-            if (currentView === 'filtered' && job.scraped_job) {
-                actualJob = job.scraped_job;
-            } else if (currentView === 'saved' && job.job_data) {
-                actualJob = job.job_data;
-            } else {
-                actualJob = job;
-            }
+            const salaryData = parseSalaryData(job);
 
-            const hasSalary = actualJob.min_amount || actualJob.max_amount;
-
-            switch(activeFilters.salary) {
+            switch(activeFilters.salaryType) {
                 case 'specified':
-                    return hasSalary;
+                    return salaryData.hasSpecifiedSalary;
+
                 case 'not_specified':
-                    return !hasSalary;
+                    return !salaryData.hasSpecifiedSalary;
+
+                case 'range':
+                    if (!salaryData.hasSpecifiedSalary) return false;
+
+                    const userMinSalary = parseSalaryInput(activeFilters.minSalary);
+                    const userMaxSalary = parseSalaryInput(activeFilters.maxSalary);
+
+                    // If no range specified, show all jobs with salary
+                    if (!userMinSalary && !userMaxSalary) return true;
+
+                    const jobMinSalary = salaryData.minSalary;
+                    const jobMaxSalary = salaryData.maxSalary;
+
+                    // STRICT range filtering logic:
+                    // User min: Job's MIN salary must be >= user's min (job GUARANTEES at least user's minimum)
+                    // User max: Job's MAX salary must be <= user's max (job doesn't exceed user's maximum)
+
+                    let matchesRange = true;
+
+                    if (userMinSalary) {
+                        // STRICT: Job's MINIMUM salary must be >= user's minimum (guarantees at least user's minimum)
+                        // Use job's min salary if available, otherwise use max salary
+                        const jobBottomSalary = jobMinSalary || jobMaxSalary;
+                        if (!jobBottomSalary || jobBottomSalary < userMinSalary) {
+                            console.log(`Job filtered out by min salary: Job min ${jobBottomSalary} < User min ${userMinSalary}`);
+                            matchesRange = false;
+                        }
+                    }
+
+                    if (userMaxSalary) {
+                        // Job's MAXIMUM salary must not exceed user's maximum
+                        // Use job's max salary if available, otherwise use min salary
+                        const jobTopSalary = jobMaxSalary || jobMinSalary;
+                        if (!jobTopSalary || jobTopSalary > userMaxSalary) {
+                            console.log(`Job filtered out by max salary: Job max ${jobTopSalary} > User max ${userMaxSalary}`);
+                            matchesRange = false;
+                        }
+                    }
+
+                    if (matchesRange && (userMinSalary || userMaxSalary)) {
+                        console.log(`Job matches salary range: ${jobMinSalary}-${jobMaxSalary} vs user ${userMinSalary}-${userMaxSalary}`);
+                    }
+
+                    return matchesRange;
+
                 default:
                     return true;
             }
