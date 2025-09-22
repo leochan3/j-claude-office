@@ -996,7 +996,9 @@
                         <select class="column-filter" id="dateFilter" onchange="applyFilters()">
                             <option value="">All Dates</option>
                             <option value="today">Today</option>
+                            <option value="3days">Past 3 Days</option>
                             <option value="week">Past Week</option>
+                            <option value="14days">Past 14 Days</option>
                             <option value="month">Past Month</option>
                         </select>
                     </div>
@@ -3227,6 +3229,22 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
 
             collectAutoScrapingFormData();
 
+            // Validate required fields
+            const errors = [];
+
+            if (!autoScrapingConfig.companies || autoScrapingConfig.companies.length === 0) {
+                errors.push('At least one target company must be added');
+            }
+
+            if (!autoScrapingConfig.search_terms || autoScrapingConfig.search_terms.length === 0) {
+                errors.push('At least one job title/search term must be added');
+            }
+
+            if (errors.length > 0) {
+                showNotification('Cannot start scraping: ' + errors.join('. '), 'error');
+                return;
+            }
+
             const token = localStorage.getItem('auth_token');
             const headers = {
                 'Content-Type': 'application/json'
@@ -3245,11 +3263,13 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                 if (data.success) {
                     showNotification('Scraping started! Check your email for results.', 'success');
                 } else {
-                    showNotification('Failed to start scraping: ' + data.message, 'error');
+                    const errorMessage = data.message || data.error || 'Unknown error occurred';
+                    showNotification('Failed to start scraping: ' + errorMessage, 'error');
                 }
             })
             .catch(error => {
-                showNotification('Error starting scraping: ' + error.message, 'error');
+                const errorMessage = error.message || 'Network error or server unavailable';
+                showNotification('Error starting scraping: ' + errorMessage, 'error');
             });
         }
 
@@ -3851,8 +3871,12 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                     const isToday = diffDays === 0;
                     console.log(`Today filter result: ${isToday} (diffDays: ${diffDays}) for job on ${jobDateOnly.toDateString()}`);
                     return isToday;
+                case '3days':
+                    return diffDays >= 0 && diffDays <= 3; // Past 3 days including today
                 case 'week':
                     return diffDays >= 0 && diffDays <= 7; // Past 7 days including today
+                case '14days':
+                    return diffDays >= 0 && diffDays <= 14; // Past 14 days including today
                 case 'month':
                     return diffDays >= 0 && diffDays <= 30; // Past 30 days including today
                 default:
