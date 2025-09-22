@@ -230,7 +230,7 @@
 
         .job-list-header {
             display: grid;
-            grid-template-columns: 40px 1fr 200px 150px 120px 100px 160px;
+            grid-template-columns: 40px 1fr 200px 150px 100px 160px;
             gap: 16px;
             padding: 12px 24px;
             background: #2d3561;
@@ -247,7 +247,7 @@
 
         .job-row {
             display: grid;
-            grid-template-columns: 40px 1fr 200px 150px 120px 100px 160px;
+            grid-template-columns: 40px 1fr 200px 150px 100px 160px;
             gap: 16px;
             padding: 16px 24px;
             border-bottom: 1px solid #2d3561;
@@ -379,19 +379,15 @@
             color: #a0aec0;
         }
 
-        .job-type {
-            display: inline-block;
-            padding: 2px 8px;
-            border-radius: 12px;
-            font-size: 11px;
+        .job-salary {
+            font-size: 13px;
+            color: #68d391;
             font-weight: 500;
-            background: #4a5568;
-            color: #cbd5e0;
         }
 
-        .job-type.remote {
-            background: #22543d;
-            color: #68d391;
+        .job-salary.no-salary {
+            color: #a0aec0;
+            font-style: italic;
         }
 
         .job-score {
@@ -617,11 +613,9 @@
             }
 
             .job-list-header .location-col,
-            .job-list-header .type-col,
-            .job-list-header .score-col,
+            .job-list-header .salary-col,
             .job-row .job-location,
-            .job-row .job-type,
-            .job-row .job-score,
+            .job-row .job-salary,
             .job-row .job-date {
                 display: none;
             }
@@ -900,9 +894,8 @@
                     <div></div>
                     <div>Job & Company</div>
                     <div class="location-col">Location</div>
-                    <div class="type-col">Type</div>
-                    <div class="score-col">Score</div>
-                    <div>Date</div>
+                    <div class="salary-col">Salary</div>
+                    <div>Posted Date</div>
                     <div>Actions</div>
                 </div>
 
@@ -928,6 +921,22 @@
     <script>
         // Application state
         let currentView = 'filtered';
+
+        // Helper function to format salary amounts
+        function formatSalary(amount) {
+            if (!amount) return '';
+
+            const num = parseFloat(amount);
+            if (isNaN(num)) return amount.toString();
+
+            if (num >= 1000000) {
+                return (num / 1000000).toFixed(1) + 'M';
+            } else if (num >= 1000) {
+                return (num / 1000).toFixed(0) + 'K';
+            } else {
+                return num.toFixed(0);
+            }
+        }
         let jobs = [];
         let selectedJobs = new Set();
         let currentUser = null;
@@ -1336,82 +1345,7 @@
                 isSelected = selectedJobs.has(jobId);
             }
 
-            // Format score - handle multiple possible score fields
-            let scoreClass = 'score-low';
-            let scoreText = 'N/A';
-
-            // For filtered jobs, use enhanced_score and ai_relevance
-            if (currentView === 'filtered') {
-                const score = job.enhanced_score;
-                if (score && typeof score === 'number') {
-                    scoreText = Math.round(score);
-                    if (score >= 80) scoreClass = 'score-high';
-                    else if (score >= 60) scoreClass = 'score-medium';
-                }
-
-                // Override with AI relevance if available
-                if (job.ai_relevance) {
-                    const relevance = job.ai_relevance.toLowerCase();
-                    if (relevance.includes('highly relevant')) {
-                        scoreText = 'High';
-                        scoreClass = 'score-high';
-                    } else if (relevance.includes('somewhat relevant')) {
-                        scoreText = 'Med';
-                        scoreClass = 'score-medium';
-                    } else if (relevance.includes('irrelevant')) {
-                        scoreText = 'Low';
-                        scoreClass = 'score-low';
-                    }
-                }
-            } else if (currentView === 'saved') {
-                // For saved jobs, try to extract score from notes or use job-level scores
-
-                if (job.notes && job.notes.includes('Enhanced Score:')) {
-                    const scoreMatch = job.notes.match(/Enhanced Score:\s*(\d+(?:\.\d+)?)/);
-                    if (scoreMatch) {
-                        const score = parseFloat(scoreMatch[1]);
-                        scoreText = Math.round(score);
-                        if (score >= 80) scoreClass = 'score-high';
-                        else if (score >= 60) scoreClass = 'score-medium';
-                    }
-                }
-
-                // Try AI relevance from notes
-                if (job.notes && job.notes.includes('AI Relevance:')) {
-                    const relevanceMatch = job.notes.match(/AI Relevance:\s*([^,\n]+)/);
-                    if (relevanceMatch) {
-                        const relevance = relevanceMatch[1].toLowerCase().trim();
-                        if (relevance.includes('highly relevant')) {
-                            scoreText = 'High';
-                            scoreClass = 'score-high';
-                        } else if (relevance.includes('somewhat relevant')) {
-                            scoreText = 'Med';
-                            scoreClass = 'score-medium';
-                        } else if (relevance.includes('irrelevant')) {
-                            scoreText = 'Low';
-                            scoreClass = 'score-low';
-                        }
-                    }
-                }
-
-                // Fallback to checking job-level or job_data-level scores
-                if (scoreText === 'N/A') {
-                    const score = job.enhanced_score || job.relevance_score || actualJob.enhanced_score || actualJob.relevance_score || actualJob.score;
-                    if (score && typeof score === 'number') {
-                        scoreText = Math.round(score);
-                        if (score >= 80) scoreClass = 'score-high';
-                        else if (score >= 60) scoreClass = 'score-medium';
-                    }
-                }
-            } else {
-                // For other job types, use available score fields
-                const score = actualJob.relevance_score || actualJob.enhanced_score || actualJob.score;
-                if (score && typeof score === 'number') {
-                    scoreText = Math.round(score);
-                    if (score >= 80) scoreClass = 'score-high';
-                    else if (score >= 60) scoreClass = 'score-medium';
-                }
-            }
+            // Score calculation removed - no longer displaying scores in the table
 
             // Format date - prefer job posting date over save/filter dates
             let date;
@@ -1435,12 +1369,34 @@
                 }
             }
 
-            // Format job type
-            let jobType = actualJob.job_type || 'Full-time';
-            let jobTypeClass = '';
-            if (actualJob.is_remote) {
-                jobType = 'Remote';
-                jobTypeClass = 'remote';
+            // Format salary
+            let salaryText = 'Not specified';
+            let salaryClass = 'no-salary';
+
+            if (actualJob.min_amount || actualJob.max_amount) {
+                const currency = actualJob.currency || '$';
+                const interval = actualJob.interval || 'year';
+
+                if (actualJob.min_amount && actualJob.max_amount) {
+                    // Range: $80K - $120K
+                    const minFormatted = formatSalary(actualJob.min_amount);
+                    const maxFormatted = formatSalary(actualJob.max_amount);
+                    salaryText = `${currency}${minFormatted} - ${currency}${maxFormatted}`;
+                } else if (actualJob.min_amount) {
+                    // Min only: $80K+
+                    const minFormatted = formatSalary(actualJob.min_amount);
+                    salaryText = `${currency}${minFormatted}+`;
+                } else if (actualJob.max_amount) {
+                    // Max only: Up to $120K
+                    const maxFormatted = formatSalary(actualJob.max_amount);
+                    salaryText = `Up to ${currency}${maxFormatted}`;
+                }
+                salaryClass = '';
+
+                // Add interval if not yearly
+                if (interval !== 'year' && interval !== 'yearly') {
+                    salaryText += `/${interval}`;
+                }
             }
 
             // Check job status and determine which indicator to show (priority: Applied > Not Interested > Saved > Actions)
@@ -1478,10 +1434,7 @@
                         </div>
                     </div>
                     <div class="job-location">${actualJob.location || 'Remote'}</div>
-                    <div class="job-type ${jobTypeClass}">${jobType}</div>
-                    <div class="job-score">
-                        <span class="score-badge ${scoreClass}">${scoreText}</span>
-                    </div>
+                    <div class="job-salary ${salaryClass}">${salaryText}</div>
                     <div class="job-date">${dateText}</div>
                     <div class="job-actions">
                         <button class="action-btn view-jd-btn" onclick="viewJobDescription('${jobId}')">
@@ -2681,8 +2634,8 @@
                                 <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #cbd5e0;">Enable Auto-Scraping</label>
                                 <label style="position: relative; display: inline-block; width: 60px; height: 34px;">
                                     <input type="checkbox" id="enableScraping" style="opacity: 0; width: 0; height: 0;">
-                                    <span style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #4a5568; transition: .4s; border-radius: 34px;"></span>
-                                    <span style="position: absolute; content: ''; height: 26px; width: 26px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%;"></span>
+                                    <span class="toggle-slider" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #4a5568; transition: .4s; border-radius: 34px;"></span>
+                                    <span class="toggle-knob" style="position: absolute; content: ''; height: 26px; width: 26px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%;"></span>
                                 </label>
                                 <div style="color: #a0aec0; font-size: 12px; margin-top: 5px;">Turn on/off automatic daily job scraping</div>
                             </div>
@@ -2772,8 +2725,8 @@
                                 <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #cbd5e0;">Enable AI Job Evaluation</label>
                                 <label style="position: relative; display: inline-block; width: 60px; height: 34px;">
                                     <input type="checkbox" id="aiEnabled" checked style="opacity: 0; width: 0; height: 0;">
-                                    <span style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #667eea; transition: .4s; border-radius: 34px;"></span>
-                                    <span style="position: absolute; content: ''; height: 26px; width: 26px; left: 30px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%;"></span>
+                                    <span class="toggle-slider" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #667eea; transition: .4s; border-radius: 34px;"></span>
+                                    <span class="toggle-knob" style="position: absolute; content: ''; height: 26px; width: 26px; left: 30px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%;"></span>
                                 </label>
                                 <div style="color: #a0aec0; font-size: 12px; margin-top: 5px;">Use AI to evaluate job relevance and apply score bonuses</div>
                             </div>
@@ -2859,14 +2812,11 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                 const slider = enableScraping.nextElementSibling;
                 const knob = slider.nextElementSibling;
 
+                // Set initial position based on checked state
+                updateTogglePosition(enableScraping, slider, knob);
+
                 enableScraping.addEventListener('change', function() {
-                    if (this.checked) {
-                        slider.style.backgroundColor = '#667eea';
-                        knob.style.transform = 'translateX(26px)';
-                    } else {
-                        slider.style.backgroundColor = '#4a5568';
-                        knob.style.transform = 'translateX(0px)';
-                    }
+                    updateTogglePosition(this, slider, knob);
                 });
             }
 
@@ -2876,15 +2826,22 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                 const slider = aiEnabled.nextElementSibling;
                 const knob = slider.nextElementSibling;
 
+                // Set initial position based on checked state
+                updateTogglePosition(aiEnabled, slider, knob);
+
                 aiEnabled.addEventListener('change', function() {
-                    if (this.checked) {
-                        slider.style.backgroundColor = '#667eea';
-                        knob.style.transform = 'translateX(26px)';
-                    } else {
-                        slider.style.backgroundColor = '#4a5568';
-                        knob.style.transform = 'translateX(0px)';
-                    }
+                    updateTogglePosition(this, slider, knob);
                 });
+            }
+        }
+
+        function updateTogglePosition(checkbox, slider, knob) {
+            if (checkbox.checked) {
+                slider.style.backgroundColor = '#667eea';
+                knob.style.left = '30px'; // Move to right (ON position)
+            } else {
+                slider.style.backgroundColor = '#4a5568';
+                knob.style.left = '4px'; // Move to left (OFF position)
             }
         }
 
