@@ -230,7 +230,7 @@
 
         .job-list-header {
             display: grid;
-            grid-template-columns: 40px 1fr 200px 150px 100px 160px;
+            grid-template-columns: 40px 2fr 1.5fr 200px 150px 120px 160px;
             gap: 16px;
             padding: 12px 24px;
             background: #2d3561;
@@ -247,7 +247,7 @@
 
         .job-row {
             display: grid;
-            grid-template-columns: 40px 1fr 200px 150px 100px 160px;
+            grid-template-columns: 40px 2fr 1.5fr 200px 150px 120px 160px;
             gap: 16px;
             padding: 16px 24px;
             border-bottom: 1px solid #2d3561;
@@ -388,6 +388,40 @@
         .job-salary.no-salary {
             color: #a0aec0;
             font-style: italic;
+        }
+
+        .filter-header {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .column-filter {
+            background: #1a1b3a;
+            border: 1px solid #4a5568;
+            border-radius: 4px;
+            color: #ffffff;
+            font-size: 11px;
+            padding: 4px 6px;
+            cursor: pointer;
+            outline: none;
+        }
+
+        .column-filter:hover {
+            border-color: #667eea;
+        }
+
+        .column-filter:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+        }
+
+        .job-company {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: #a0aec0;
         }
 
         .job-score {
@@ -609,11 +643,14 @@
 
             .job-list-header,
             .job-row {
-                grid-template-columns: 40px 1fr 120px;
+                grid-template-columns: 40px 1fr 1fr 120px;
             }
 
             .job-list-header .location-col,
             .job-list-header .salary-col,
+            .job-list-header .filter-header:nth-child(4),
+            .job-list-header .filter-header:nth-child(5),
+            .job-list-header .filter-header:nth-child(6),
             .job-row .job-location,
             .job-row .job-salary,
             .job-row .job-date {
@@ -890,12 +927,50 @@
             <!-- Job List Container -->
             <div class="job-list-container" id="jobListContainer">
                 <!-- Job List Header -->
+                <div style="margin-bottom: 10px;">
+                    <button onclick="clearAllFilters()" style="background: #dc3545; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer;">Clear All Filters</button>
+                </div>
                 <div class="job-list-header">
                     <div></div>
-                    <div>Job & Company</div>
-                    <div class="location-col">Location</div>
-                    <div class="salary-col">Salary</div>
-                    <div>Posted Date</div>
+                    <div class="filter-header">
+                        Job Title
+                        <select class="column-filter" id="jobFilter" onchange="applyFilters()">
+                            <option value="">All Jobs</option>
+                            <option value="new">New</option>
+                            <option value="saved">Saved</option>
+                            <option value="applied">Applied</option>
+                            <option value="not_interested">Not Interested</option>
+                        </select>
+                    </div>
+                    <div class="filter-header">
+                        Company
+                        <select class="column-filter" id="companyFilter" onchange="applyFilters()">
+                            <option value="">All Companies</option>
+                        </select>
+                    </div>
+                    <div class="filter-header location-col">
+                        Location
+                        <select class="column-filter" id="locationFilter" onchange="applyFilters()">
+                            <option value="">All Locations</option>
+                        </select>
+                    </div>
+                    <div class="filter-header salary-col">
+                        Salary
+                        <select class="column-filter" id="salaryFilter" onchange="applyFilters()">
+                            <option value="">All Salaries</option>
+                            <option value="specified">With Salary</option>
+                            <option value="not_specified">No Salary Listed</option>
+                        </select>
+                    </div>
+                    <div class="filter-header">
+                        Posted Date
+                        <select class="column-filter" id="dateFilter" onchange="applyFilters()">
+                            <option value="">All Dates</option>
+                            <option value="today">Today</option>
+                            <option value="week">Past Week</option>
+                            <option value="month">Past Month</option>
+                        </select>
+                    </div>
                     <div>Actions</div>
                 </div>
 
@@ -938,9 +1013,19 @@
             }
         }
         let jobs = [];
+        let allJobs = []; // Store all jobs for filtering
         let selectedJobs = new Set();
         let currentUser = null;
         let savedJobUrls = new Set(); // Track saved job URLs for indicators
+
+        // Filter state
+        let activeFilters = {
+            job: '',
+            company: '',
+            location: '',
+            salary: '',
+            date: ''
+        };
         let appliedJobUrls = new Set(); // Track applied job URLs for indicators
         let notInterestedJobUrls = new Set(); // Track not interested job URLs for indicators
         let currentModalJob = null; // Track currently displayed job in modal
@@ -1258,22 +1343,29 @@
                 if (currentView === 'filtered') {
                     // Handle filtered jobs response format
                     if (data.success && data.filtered_jobs) {
-                        jobs = data.filtered_jobs;
+                        allJobs = data.filtered_jobs; // Store all jobs for filtering
+                        jobs = [...allJobs]; // Copy for display
                         console.log('Loaded filtered jobs:', jobs.length, 'Sample job:', jobs[0]);
                     } else {
                         console.warn('No filtered_jobs in response:', data);
+                        allJobs = [];
                         jobs = [];
                     }
                 } else if (currentView === 'saved') {
                     // Handle saved jobs response format
                     if (data.success && data.saved_jobs) {
-                        jobs = data.saved_jobs;
+                        allJobs = data.saved_jobs; // Store all jobs for filtering
+                        jobs = [...allJobs]; // Copy for display
                         console.log('Loaded saved jobs:', jobs.length, 'Sample job:', jobs[0]);
                     } else {
                         console.warn('No saved_jobs in response:', data);
+                        allJobs = [];
                         jobs = [];
                     }
                 }
+
+                // Populate filter dropdowns with job data
+                populateFilterDropdowns();
 
                 updateJobCounts();
                 renderJobs();
@@ -1423,15 +1515,13 @@
             return `
                 <div class="job-row ${isSelected ? 'selected' : ''}" data-job-id="${jobId}">
                     <div class="job-checkbox ${isSelected ? 'checked' : ''}"></div>
-                    <div class="job-info">
-                        <div class="job-title">
-                            ${actualJob.title || 'No Title'}
-                            ${statusIndicator}
-                        </div>
-                        <div class="job-company">
-                            <div class="company-logo"></div>
-                            <span>${actualJob.company || 'Unknown Company'}</span>
-                        </div>
+                    <div class="job-title">
+                        ${actualJob.title || 'No Title'}
+                        ${statusIndicator}
+                    </div>
+                    <div class="job-company">
+                        <div class="company-logo"></div>
+                        <span>${actualJob.company || 'Unknown Company'}</span>
                     </div>
                     <div class="job-location">${actualJob.location || 'Remote'}</div>
                     <div class="job-salary ${salaryClass}">${salaryText}</div>
@@ -3131,6 +3221,264 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
         // Fix the existing loadAutoScrapingConfig function to use the new name
         function loadAutoScrapingConfig() {
             showAutoScrapingContent();
+        }
+
+        // Filtering Functions
+        function clearAllFilters() {
+            // Reset all filter dropdowns
+            document.getElementById('jobFilter').value = '';
+            document.getElementById('companyFilter').value = '';
+            document.getElementById('locationFilter').value = '';
+            document.getElementById('salaryFilter').value = '';
+            document.getElementById('dateFilter').value = '';
+
+            // Reset activeFilters object
+            activeFilters = {
+                job: '',
+                company: '',
+                location: '',
+                salary: '',
+                date: ''
+            };
+
+            // Reset jobs array to show all jobs
+            jobs = [...allJobs];
+            renderJobs();
+            console.log('All filters cleared, showing all jobs:', jobs.length);
+        }
+
+        function applyFilters() {
+            // Get current filter values
+            activeFilters.job = document.getElementById('jobFilter')?.value || '';
+            activeFilters.company = document.getElementById('companyFilter')?.value || '';
+            activeFilters.location = document.getElementById('locationFilter')?.value || '';
+            activeFilters.salary = document.getElementById('salaryFilter')?.value || '';
+            activeFilters.date = document.getElementById('dateFilter')?.value || '';
+
+            console.log('Applying filters:', activeFilters);
+            console.log('Total jobs before filtering:', allJobs.length);
+
+            // Filter jobs based on active filters
+            let filteredJobs = allJobs.filter(job => {
+                const jobMatch = matchesJobFilter(job);
+                const companyMatch = matchesCompanyFilter(job);
+                const locationMatch = matchesLocationFilter(job);
+                const salaryMatch = matchesSalaryFilter(job);
+                const dateMatch = matchesDateFilter(job);
+
+                return jobMatch && companyMatch && locationMatch && salaryMatch && dateMatch;
+            });
+
+            console.log('Jobs after filtering:', filteredJobs.length);
+
+            // Update the jobs array and re-render
+            jobs = filteredJobs;
+            renderJobs();
+        }
+
+        function matchesJobFilter(job) {
+            if (!activeFilters.job) return true;
+
+            // Handle different data structures for filtered vs saved jobs
+            let actualJob;
+            if (currentView === 'filtered' && job.scraped_job) {
+                actualJob = job.scraped_job;
+            } else if (currentView === 'saved' && job.job_data) {
+                actualJob = job.job_data;
+            } else {
+                actualJob = job;
+            }
+
+            if (!actualJob.job_url) return false;
+
+            // Status hierarchy: applied > not_interested > saved > new
+            // Each job should only show in ONE status category
+            const isApplied = appliedJobUrls.has(actualJob.job_url);
+            const isNotInterested = notInterestedJobUrls.has(actualJob.job_url);
+            const isSaved = savedJobUrls.has(actualJob.job_url);
+
+            switch(activeFilters.job) {
+                case 'new':
+                    // New = not saved, not applied, not marked as not interested
+                    return !isSaved && !isApplied && !isNotInterested;
+                case 'saved':
+                    // Saved = saved but NOT applied and NOT not interested
+                    return isSaved && !isApplied && !isNotInterested;
+                case 'applied':
+                    // Applied = marked as applied (regardless of saved status)
+                    return isApplied;
+                case 'not_interested':
+                    // Not interested = marked as not interested (regardless of saved status)
+                    return isNotInterested;
+                default:
+                    return true;
+            }
+        }
+
+        function matchesCompanyFilter(job) {
+            if (!activeFilters.company) return true;
+
+            // Handle different data structures for filtered vs saved jobs
+            let actualJob;
+            if (currentView === 'filtered' && job.scraped_job) {
+                actualJob = job.scraped_job;
+            } else if (currentView === 'saved' && job.job_data) {
+                actualJob = job.job_data;
+            } else {
+                actualJob = job;
+            }
+
+            const company = (actualJob.company || '').trim();
+            return company === activeFilters.company;
+        }
+
+        function matchesLocationFilter(job) {
+            if (!activeFilters.location) return true;
+
+            // Handle different data structures for filtered vs saved jobs
+            let actualJob;
+            if (currentView === 'filtered' && job.scraped_job) {
+                actualJob = job.scraped_job;
+            } else if (currentView === 'saved' && job.job_data) {
+                actualJob = job.job_data;
+            } else {
+                actualJob = job;
+            }
+
+            const location = (actualJob.location || '').trim();
+            return location === activeFilters.location;
+        }
+
+        function matchesSalaryFilter(job) {
+            if (!activeFilters.salary) return true;
+
+            // Handle different data structures for filtered vs saved jobs
+            let actualJob;
+            if (currentView === 'filtered' && job.scraped_job) {
+                actualJob = job.scraped_job;
+            } else if (currentView === 'saved' && job.job_data) {
+                actualJob = job.job_data;
+            } else {
+                actualJob = job;
+            }
+
+            const hasSalary = actualJob.min_amount || actualJob.max_amount;
+
+            switch(activeFilters.salary) {
+                case 'specified':
+                    return hasSalary;
+                case 'not_specified':
+                    return !hasSalary;
+                default:
+                    return true;
+            }
+        }
+
+        function matchesDateFilter(job) {
+            if (!activeFilters.date) return true;
+
+            // Handle different data structures for filtered vs saved jobs
+            let actualJob;
+            if (currentView === 'filtered' && job.scraped_job) {
+                actualJob = job.scraped_job;
+            } else if (currentView === 'saved' && job.job_data) {
+                actualJob = job.job_data;
+            } else {
+                actualJob = job;
+            }
+
+            let date = actualJob.date_posted || actualJob.filtered_at || actualJob.scraped_at;
+
+            if (!date) return true;
+
+            const jobDate = new Date(date);
+            const now = new Date();
+            const diffTime = Math.abs(now - jobDate);
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+            switch(activeFilters.date) {
+                case 'today':
+                    return diffDays <= 1;
+                case 'week':
+                    return diffDays <= 7;
+                case 'month':
+                    return diffDays <= 30;
+                default:
+                    return true;
+            }
+        }
+
+        function populateFilterDropdowns() {
+            populateCompanyFilter();
+            populateLocationFilter();
+        }
+
+        function populateCompanyFilter() {
+            const companyFilter = document.getElementById('companyFilter');
+            if (!companyFilter) return;
+
+            const companies = new Set();
+            allJobs.forEach(job => {
+                // Handle different data structures for filtered vs saved jobs
+                let actualJob;
+                if (currentView === 'filtered' && job.scraped_job) {
+                    actualJob = job.scraped_job;
+                } else if (currentView === 'saved' && job.job_data) {
+                    actualJob = job.job_data;
+                } else {
+                    actualJob = job;
+                }
+
+                const company = actualJob.company;
+                if (company && company.trim()) {
+                    companies.add(company.trim());
+                }
+            });
+
+            // Clear existing options except "All Companies"
+            companyFilter.innerHTML = '<option value="">All Companies</option>';
+
+            // Add company options sorted alphabetically
+            Array.from(companies).sort().forEach(company => {
+                const option = document.createElement('option');
+                option.value = company;
+                option.textContent = company;
+                companyFilter.appendChild(option);
+            });
+        }
+
+        function populateLocationFilter() {
+            const locationFilter = document.getElementById('locationFilter');
+            if (!locationFilter) return;
+
+            const locations = new Set();
+            allJobs.forEach(job => {
+                // Handle different data structures for filtered vs saved jobs
+                let actualJob;
+                if (currentView === 'filtered' && job.scraped_job) {
+                    actualJob = job.scraped_job;
+                } else if (currentView === 'saved' && job.job_data) {
+                    actualJob = job.job_data;
+                } else {
+                    actualJob = job;
+                }
+
+                const location = actualJob.location;
+                if (location && location.trim()) {
+                    locations.add(location.trim());
+                }
+            });
+
+            // Clear existing options except "All Locations"
+            locationFilter.innerHTML = '<option value="">All Locations</option>';
+
+            // Add location options sorted alphabetically
+            Array.from(locations).sort().forEach(location => {
+                const option = document.createElement('option');
+                option.value = location;
+                option.textContent = location;
+                locationFilter.appendChild(option);
+            });
         }
 
 
