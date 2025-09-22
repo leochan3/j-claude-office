@@ -437,12 +437,48 @@ def create_job_hash(title: str, company: str, location: str, job_url: str = None
 
     return hashlib.md5(hash_string.encode('utf-8')).hexdigest()
 
+def normalize_location(location: str) -> str:
+    """Normalize location strings to catch format variations of same city."""
+    if not location:
+        return ""
+
+    location_clean = location.strip().lower()
+
+    # Common location normalizations
+    normalizations = {
+        # Remove common suffixes
+        r'\s*,?\s*us\s*$': '',
+        r'\s*,?\s*usa\s*$': '',
+        r'\s*,?\s*united states\s*$': '',
+
+        # Normalize county references
+        r'\s+county\s*,': ',',
+
+        # Standardize state abbreviations (add more as needed)
+        r'\bnew york\b': 'ny',
+        r'\bcalifornia\b': 'ca',
+        r'\bwashington\b': 'wa',
+        r'\btexas\b': 'tx',
+        r'\bflorida\b': 'fl',
+
+        # Remove extra whitespace and punctuation
+        r'\s+': ' ',
+        r'[^\w\s]': '',
+    }
+
+    for pattern, replacement in normalizations.items():
+        location_clean = re.sub(pattern, replacement, location_clean)
+
+    return location_clean.strip()
+
 def create_content_hash(title: str, company: str, location: str) -> str:
     """Create a content-based hash for cross-platform deduplication."""
     # Normalize and clean the inputs for consistent hashing across platforms
     title_clean = re.sub(r'[^\w\s]', '', title.strip().lower())
     company_clean = re.sub(r'[^\w\s]', '', company.strip().lower())
-    location_clean = re.sub(r'[^\w\s]', '', location.strip().lower())
+
+    # Apply location normalization for better duplicate detection
+    location_clean = normalize_location(location)
 
     # Remove extra whitespace and standardize
     title_clean = ' '.join(title_clean.split())
