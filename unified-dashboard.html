@@ -980,9 +980,8 @@
                         <div style="display: flex; flex-direction: column; gap: 4px;">
                             <select class="column-filter" id="salaryTypeFilter" onchange="handleSalaryTypeChange()">
                                 <option value="all">All Salaries</option>
-                                <option value="specified">With Salary</option>
                                 <option value="not_specified">No Salary Listed</option>
-                                <option value="range">By Range</option>
+                                <option value="range">Range (Lower End Pay)</option>
                             </select>
                             <div id="salaryRangeFilter" style="display: none;">
                                 <input type="text" id="minSalaryInput" placeholder="Min (e.g. 70k)" style="width: 60px; margin-bottom: 2px;"
@@ -3737,9 +3736,6 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
             const salaryData = parseSalaryData(job);
 
             switch(activeFilters.salaryType) {
-                case 'specified':
-                    return salaryData.hasSpecifiedSalary;
-
                 case 'not_specified':
                     return !salaryData.hasSpecifiedSalary;
 
