@@ -992,7 +992,7 @@
                         </div>
                     </div>
                     <div class="filter-header">
-                        Posted Date
+                        Date Added
                         <select class="column-filter" id="dateFilter" onchange="applyFilters()">
                             <option value="">All Dates</option>
                             <option value="today">Today</option>
@@ -1474,14 +1474,14 @@
 
             // Score calculation removed - no longer displaying scores in the table
 
-            // Format date - prefer job posting date over save/filter dates
+            // Format date - use scraped date to show when job was added to our system
             let date;
             if (currentView === 'filtered') {
-                date = actualJob.date_posted || job.filter_date;
+                date = actualJob.scraped_at || job.filter_date || actualJob.date_posted;
             } else if (currentView === 'saved') {
-                date = actualJob.date_posted || job.created_at;
+                date = actualJob.scraped_at || job.created_at || actualJob.date_posted;
             } else {
-                date = actualJob.date_posted || actualJob.date_saved || actualJob.created_at;
+                date = actualJob.scraped_at || actualJob.date_saved || actualJob.created_at;
             }
 
             let dateText = 'N/A';
@@ -3549,6 +3549,7 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
             activeFilters.maxSalary = document.getElementById('maxSalaryInput')?.value || '';
 
             console.log('Applying filters:', activeFilters);
+            console.log('Date filter value specifically:', document.getElementById('dateFilter')?.value, 'activeFilters.date:', activeFilters.date);
             console.log('Total jobs before filtering:', allJobs.length);
 
             // Filter jobs based on active filters
@@ -3559,7 +3560,19 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                 const salaryMatch = matchesSalaryFilter(job);
                 const dateMatch = matchesDateFilter(job);
 
-                return jobMatch && companyMatch && locationMatch && salaryMatch && dateMatch;
+                const overallMatch = jobMatch && companyMatch && locationMatch && salaryMatch && dateMatch;
+
+                // Debug filter results for jobs that fail date filter
+                if (!dateMatch && activeFilters.date) {
+                    console.log(`Job filtered out by date: ${job.scraped_job?.title || job.job_data?.title || job.title} - dateMatch: ${dateMatch}`);
+                }
+
+                // Debug overall filter logic
+                if (!overallMatch) {
+                    console.log(`Job filtered out: jobMatch=${jobMatch}, companyMatch=${companyMatch}, locationMatch=${locationMatch}, salaryMatch=${salaryMatch}, dateMatch=${dateMatch}`);
+                }
+
+                return overallMatch;
             });
 
             console.log('Jobs after filtering:', filteredJobs.length);
@@ -3801,22 +3814,47 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                 actualJob = job;
             }
 
-            let date = actualJob.date_posted || actualJob.filtered_at || actualJob.scraped_at;
+            // Use the same date field selection logic as the display function
+            let date;
+            if (currentView === 'filtered') {
+                date = actualJob.scraped_at || job.filter_date || actualJob.date_posted;
+            } else if (currentView === 'saved') {
+                date = actualJob.scraped_at || job.created_at || actualJob.date_posted;
+            } else {
+                date = actualJob.scraped_at || actualJob.date_saved || actualJob.created_at;
+            }
 
             if (!date) return true;
 
             const jobDate = new Date(date);
             const now = new Date();
-            const diffTime = Math.abs(now - jobDate);
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+            console.log(`Raw date from job: "${date}", Parsed jobDate: ${jobDate.toString()}, Now: ${now.toString()}`);
+
+            // Check if date parsing failed
+            if (isNaN(jobDate.getTime())) {
+                console.warn(`Invalid date found: "${date}"`);
+                return true; // Show jobs with invalid dates
+            }
+
+            // Get dates without time components for accurate day comparison
+            const jobDateOnly = new Date(jobDate.getFullYear(), jobDate.getMonth(), jobDate.getDate());
+            const nowDateOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+            const diffTime = nowDateOnly.getTime() - jobDateOnly.getTime();
+            const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+            console.log(`Date filter debug: Job date ${jobDateOnly.toDateString()}, Today ${nowDateOnly.toDateString()}, Diff days: ${diffDays}, Filter: ${activeFilters.date}`);
 
             switch(activeFilters.date) {
                 case 'today':
-                    return diffDays <= 1;
+                    const isToday = diffDays === 0;
+                    console.log(`Today filter result: ${isToday} (diffDays: ${diffDays}) for job on ${jobDateOnly.toDateString()}`);
+                    return isToday;
                 case 'week':
-                    return diffDays <= 7;
+                    return diffDays >= 0 && diffDays <= 7; // Past 7 days including today
                 case 'month':
-                    return diffDays <= 30;
+                    return diffDays >= 0 && diffDays <= 30; // Past 30 days including today
                 default:
                     return true;
             }
