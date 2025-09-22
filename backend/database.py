@@ -5,6 +5,7 @@ from sqlalchemy.sql import func
 import uuid
 import hashlib
 import os
+import re
 
 # Database configuration: Use PostgreSQL in production, SQLite in development
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///../jobsearch.db")
@@ -244,6 +245,7 @@ class ScrapedJob(Base):
     # Deduplication fields
     job_url = Column(String, index=True)  # Primary deduplication key
     job_hash = Column(String, nullable=False, index=True)  # Hash for deduplication (no longer globally unique)
+    content_hash = Column(String, index=True)  # Content-based hash for cross-platform deduplication
     
     # Core job information
     title = Column(String, nullable=False, index=True)
@@ -427,16 +429,74 @@ class FilteredJobView(Base):
 
 def create_job_hash(title: str, company: str, location: str, job_url: str = None) -> str:
     """Create a hash for job deduplication."""
-    # Use job_url if available, otherwise use title+company+location
+    # Keep original URL-based deduplication for exact URL matches
     if job_url and job_url.strip():
         hash_string = job_url.strip().lower()
     else:
         hash_string = f"{title.strip().lower()}|{company.strip().lower()}|{location.strip().lower()}"
-    
+
+    return hashlib.md5(hash_string.encode('utf-8')).hexdigest()
+
+def create_content_hash(title: str, company: str, location: str) -> str:
+    """Create a content-based hash for cross-platform deduplication."""
+    # Normalize and clean the inputs for consistent hashing across platforms
+    title_clean = re.sub(r'[^\w\s]', '', title.strip().lower())
+    company_clean = re.sub(r'[^\w\s]', '', company.strip().lower())
+    location_clean = re.sub(r'[^\w\s]', '', location.strip().lower())
+
+    # Remove extra whitespace and standardize
+    title_clean = ' '.join(title_clean.split())
+    company_clean = ' '.join(company_clean.split())
+    location_clean = ' '.join(location_clean.split())
+
+    hash_string = f"{title_clean}|{company_clean}|{location_clean}"
+
     return hashlib.md5(hash_string.encode('utf-8')).hexdigest()
 
 def create_tables():
     Base.metadata.create_all(bind=engine)
+
+    # Add content_hash column to existing scraped_jobs table if it doesn't exist
+    try:
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            # Check if content_hash column exists
+            if DATABASE_URL.startswith("sqlite"):
+                result = conn.execute(text("PRAGMA table_info(scraped_jobs)"))
+                columns = [row[1] for row in result.fetchall()]
+                if 'content_hash' not in columns:
+                    print("Adding content_hash column to scraped_jobs table...")
+                    conn.execute(text("ALTER TABLE scraped_jobs ADD COLUMN content_hash VARCHAR"))
+                    conn.commit()
+                    print("✅ content_hash column added successfully")
+
+                    # Populate content_hash for existing jobs
+                    print("Populating content_hash for existing jobs...")
+                    result = conn.execute(text("SELECT id, title, company, location FROM scraped_jobs WHERE content_hash IS NULL"))
+                    jobs_to_update = result.fetchall()
+
+                    for job in jobs_to_update:
+                        job_id, title, company, location = job
+                        content_hash = create_content_hash(title or '', company or '', location or '')
+                        conn.execute(text("UPDATE scraped_jobs SET content_hash = :content_hash WHERE id = :job_id"),
+                                   {"content_hash": content_hash, "job_id": job_id})
+
+                    conn.commit()
+                    print(f"✅ Updated content_hash for {len(jobs_to_update)} existing jobs")
+            else:
+                # PostgreSQL
+                result = conn.execute(text("""
+                    SELECT column_name FROM information_schema.columns
+                    WHERE table_name = 'scraped_jobs' AND column_name = 'content_hash'
+                """))
+                if not result.fetchone():
+                    print("Adding content_hash column to scraped_jobs table...")
+                    conn.execute(text("ALTER TABLE scraped_jobs ADD COLUMN content_hash VARCHAR"))
+                    conn.commit()
+                    print("✅ content_hash column added successfully")
+    except Exception as e:
+        print(f"Migration note: {e}")
+        # Don't fail if migration has issues, just continue
 
 def get_db():
     db = SessionLocal()

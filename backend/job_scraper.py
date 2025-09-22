@@ -19,7 +19,7 @@ import time
 from bs4 import BeautifulSoup
 import re
 
-from database import get_db, TargetCompany, ScrapedJob, ScrapingRun, create_job_hash
+from database import get_db, TargetCompany, ScrapedJob, ScrapingRun, create_job_hash, create_content_hash
 from models import ScrapingRunCreate, BulkScrapingRequest
 
 
@@ -772,8 +772,11 @@ class JobScrapingService:
         new_jobs_count = 0
         duplicate_jobs_count = 0
 
+        # Site priority for deduplication (prefer Indeed over LinkedIn)
+        site_priority = {"indeed": 1, "glassdoor": 2, "zip_recruiter": 3, "linkedin": 4}
+
         for job_data in jobs:
-            # Create job hash for deduplication
+            # Create both hash types for comprehensive deduplication
             job_hash = create_job_hash(
                 title=job_data.get('title', ''),
                 company=job_data.get('company', ''),
@@ -781,18 +784,51 @@ class JobScrapingService:
                 job_url=job_data.get('job_url', '')
             )
 
-            # Check for duplicates within the same scraping run only
-            # This allows different users to scrape the same jobs
+            content_hash = create_content_hash(
+                title=job_data.get('title', ''),
+                company=job_data.get('company', ''),
+                location=job_data.get('location', '')
+            )
+
+            current_site = job_data.get('site', '').lower()
+
+            # Check for URL-based duplicates first (exact same job posting)
             try:
-                existing_job = db.query(ScrapedJob).filter(
+                url_duplicate = db.query(ScrapedJob).filter(
                     ScrapedJob.job_hash == job_hash,
                     ScrapedJob.scraping_run_id == scraping_run_id
                 ).first()
-                if existing_job:
+                if url_duplicate:
                     duplicate_jobs_count += 1
                     continue
             except Exception:
-                # If the check fails, proceed to try insert and handle IntegrityError
+                pass
+
+            # Check for content-based duplicates (same job from different platforms)
+            try:
+                content_duplicate = db.query(ScrapedJob).filter(
+                    ScrapedJob.content_hash == content_hash,
+                    ScrapedJob.scraping_run_id == scraping_run_id
+                ).first()
+
+                if content_duplicate:
+                    # Apply site priority logic - keep the job from preferred site
+                    existing_site = content_duplicate.site.lower()
+                    existing_priority = site_priority.get(existing_site, 999)
+                    current_priority = site_priority.get(current_site, 999)
+
+                    if current_priority < existing_priority:
+                        # Current job is from a preferred site, replace the existing one
+                        print(f"Replacing {existing_site} job with {current_site} job: {job_data.get('title', '')}")
+                        db.delete(content_duplicate)
+                        db.flush()  # Ensure deletion is committed before insert
+                    else:
+                        # Keep existing job from preferred site
+                        print(f"Skipping {current_site} job, keeping {existing_site} job: {job_data.get('title', '')}")
+                        duplicate_jobs_count += 1
+                        continue
+            except Exception as e:
+                print(f"Error checking content duplicates: {e}")
                 pass
 
             # Extract experience years
@@ -821,6 +857,7 @@ class JobScrapingService:
             job_url = job_data.get('job_url_direct') or job_data.get('job_url')
             scraped_job = ScrapedJob(
                 job_hash=job_hash,
+                content_hash=content_hash,
                 job_url=job_url,
                 title=job_data.get('title', ''),
                 company=job_data.get('company', ''),
