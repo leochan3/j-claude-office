@@ -1491,7 +1491,11 @@
                 try {
                     const dateObj = new Date(date);
                     if (!isNaN(dateObj.getTime())) {
-                        dateText = dateObj.toLocaleDateString();
+                        // Use UTC date components to avoid timezone shifts
+                        const year = dateObj.getUTCFullYear();
+                        const month = dateObj.getUTCMonth() + 1;
+                        const day = dateObj.getUTCDate();
+                        dateText = `${month}/${day}/${year}`;
                     }
                 } catch (e) {
                     console.warn('Invalid date:', date);
@@ -3857,9 +3861,9 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                 return true; // Show jobs with invalid dates
             }
 
-            // Get dates without time components for accurate day comparison
-            const jobDateOnly = new Date(jobDate.getFullYear(), jobDate.getMonth(), jobDate.getDate());
-            const nowDateOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            // Get dates without time components for accurate day comparison using UTC
+            const jobDateOnly = new Date(jobDate.getUTCFullYear(), jobDate.getUTCMonth(), jobDate.getUTCDate());
+            const nowDateOnly = new Date(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
 
             const diffTime = nowDateOnly.getTime() - jobDateOnly.getTime();
             const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
