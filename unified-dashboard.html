@@ -950,9 +950,30 @@
                     </div>
                     <div class="filter-header location-col">
                         Location
-                        <select class="column-filter" id="locationFilter" onchange="applyFilters()">
-                            <option value="">All Locations</option>
-                        </select>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <select class="column-filter" id="locationTypeFilter" onchange="handleLocationTypeChange()">
+                                <option value="all">All Locations</option>
+                                <option value="exact">Exact Location</option>
+                                <option value="state">By State</option>
+                                <option value="distance">By Distance</option>
+                            </select>
+                            <select class="column-filter" id="locationFilter" onchange="applyFilters()" style="display: none;">
+                                <option value="">All Locations</option>
+                            </select>
+                            <select class="column-filter" id="stateFilter" onchange="applyFilters()" style="display: none;">
+                                <option value="">All States</option>
+                            </select>
+                            <div id="distanceFilter" style="display: none;">
+                                <input type="text" id="zipcodeInput" placeholder="Zipcode" style="width: 70px; margin-bottom: 2px;"
+                                       onkeyup="setTimeout(applyFilters, 300)" onchange="applyFilters()">
+                                <select id="radiusSelect" onchange="applyFilters()">
+                                    <option value="25">25 miles</option>
+                                    <option value="50">50 miles</option>
+                                    <option value="100">100 miles</option>
+                                    <option value="200">200 miles</option>
+                                </select>
+                            </div>
+                        </div>
                     </div>
                     <div class="filter-header salary-col">
                         Salary
@@ -1022,7 +1043,11 @@
         let activeFilters = {
             job: '',
             company: '',
+            locationType: 'all',
             location: '',
+            state: '',
+            zipcode: '',
+            radius: '25',
             salary: '',
             date: ''
         };
@@ -3223,20 +3248,159 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
             showAutoScrapingContent();
         }
 
+        // Location parsing utilities
+        function parseLocation(locationString) {
+            if (!locationString) return {};
+
+            const location = locationString.trim();
+            const parts = location.split(',').map(part => part.trim());
+
+            let city, state, country;
+
+            if (parts.length >= 2) {
+                city = parts[0];
+
+                // Handle different formats:
+                // "San Jose, CA" or "San Jose, CA, US"
+                if (parts.length === 2) {
+                    state = parts[1];
+                    country = 'US'; // Default assumption
+                } else if (parts.length >= 3) {
+                    state = parts[1];
+                    country = parts[2];
+                }
+
+                // Clean up state codes (handle both full names and abbreviations)
+                if (state) {
+                    state = state.toUpperCase();
+                    // Convert full state names to abbreviations if needed
+                    const stateAbbreviations = {
+                        'CALIFORNIA': 'CA', 'NEW YORK': 'NY', 'TEXAS': 'TX', 'FLORIDA': 'FL',
+                        'ILLINOIS': 'IL', 'PENNSYLVANIA': 'PA', 'OHIO': 'OH', 'GEORGIA': 'GA',
+                        'NORTH CAROLINA': 'NC', 'MICHIGAN': 'MI', 'NEW JERSEY': 'NJ',
+                        'VIRGINIA': 'VA', 'WASHINGTON': 'WA', 'ARIZONA': 'AZ', 'MASSACHUSETTS': 'MA',
+                        'TENNESSEE': 'TN', 'INDIANA': 'IN', 'MISSOURI': 'MO', 'MARYLAND': 'MD',
+                        'WISCONSIN': 'WI', 'COLORADO': 'CO', 'MINNESOTA': 'MN', 'SOUTH CAROLINA': 'SC',
+                        'ALABAMA': 'AL', 'LOUISIANA': 'LA', 'KENTUCKY': 'KY', 'OREGON': 'OR',
+                        'OKLAHOMA': 'OK', 'CONNECTICUT': 'CT', 'UTAH': 'UT', 'IOWA': 'IA',
+                        'NEVADA': 'NV', 'ARKANSAS': 'AR', 'MISSISSIPPI': 'MS', 'KANSAS': 'KS',
+                        'NEW MEXICO': 'NM', 'NEBRASKA': 'NE', 'WEST VIRGINIA': 'WV', 'IDAHO': 'ID',
+                        'HAWAII': 'HI', 'NEW HAMPSHIRE': 'NH', 'MAINE': 'ME', 'MONTANA': 'MT',
+                        'RHODE ISLAND': 'RI', 'DELAWARE': 'DE', 'SOUTH DAKOTA': 'SD',
+                        'NORTH DAKOTA': 'ND', 'ALASKA': 'AK', 'VERMONT': 'VT', 'WYOMING': 'WY'
+                    };
+                    state = stateAbbreviations[state] || state;
+                }
+            } else {
+                // Handle single word locations or special cases
+                city = location;
+            }
+
+            return {
+                original: location,
+                city: city,
+                state: state,
+                country: country,
+                isRemote: /remote|work from home|wfh|anywhere/i.test(location)
+            };
+        }
+
+        function getUniqueStates(jobs) {
+            const states = new Set();
+            jobs.forEach(job => {
+                let actualJob;
+                if (currentView === 'filtered' && job.scraped_job) {
+                    actualJob = job.scraped_job;
+                } else if (currentView === 'saved' && job.job_data) {
+                    actualJob = job.job_data;
+                } else {
+                    actualJob = job;
+                }
+
+                const parsed = parseLocation(actualJob.location);
+                if (parsed.state) {
+                    states.add(parsed.state);
+                }
+                if (parsed.isRemote) {
+                    states.add('REMOTE');
+                }
+            });
+            return Array.from(states).sort();
+        }
+
+        // Location filtering functions
+        function handleLocationTypeChange() {
+            const typeFilter = document.getElementById('locationTypeFilter').value;
+
+            // Hide all location filter options
+            document.getElementById('locationFilter').style.display = 'none';
+            document.getElementById('stateFilter').style.display = 'none';
+            document.getElementById('distanceFilter').style.display = 'none';
+
+            // Show appropriate filter based on selection
+            switch(typeFilter) {
+                case 'exact':
+                    document.getElementById('locationFilter').style.display = 'block';
+                    break;
+                case 'state':
+                    document.getElementById('stateFilter').style.display = 'block';
+                    populateStateFilter();
+                    break;
+                case 'distance':
+                    document.getElementById('distanceFilter').style.display = 'block';
+                    break;
+                default:
+                    // 'all' - no additional filter needed
+                    break;
+            }
+
+            // Apply filters after changing type
+            applyFilters();
+        }
+
+        function populateStateFilter() {
+            const stateFilter = document.getElementById('stateFilter');
+            if (!stateFilter) return;
+
+            const states = getUniqueStates(allJobs);
+
+            // Clear existing options except "All States"
+            stateFilter.innerHTML = '<option value="">All States</option>';
+
+            // Add state options
+            states.forEach(state => {
+                const option = document.createElement('option');
+                option.value = state;
+                option.textContent = state;
+                stateFilter.appendChild(option);
+            });
+        }
+
         // Filtering Functions
         function clearAllFilters() {
             // Reset all filter dropdowns
             document.getElementById('jobFilter').value = '';
             document.getElementById('companyFilter').value = '';
+            document.getElementById('locationTypeFilter').value = 'all';
             document.getElementById('locationFilter').value = '';
+            document.getElementById('stateFilter').value = '';
+            document.getElementById('zipcodeInput').value = '';
+            document.getElementById('radiusSelect').value = '25';
             document.getElementById('salaryFilter').value = '';
             document.getElementById('dateFilter').value = '';
+
+            // Reset location filter display
+            handleLocationTypeChange();
 
             // Reset activeFilters object
             activeFilters = {
                 job: '',
                 company: '',
+                locationType: 'all',
                 location: '',
+                state: '',
+                zipcode: '',
+                radius: '25',
                 salary: '',
                 date: ''
             };
@@ -3251,9 +3415,15 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
             // Get current filter values
             activeFilters.job = document.getElementById('jobFilter')?.value || '';
             activeFilters.company = document.getElementById('companyFilter')?.value || '';
-            activeFilters.location = document.getElementById('locationFilter')?.value || '';
             activeFilters.salary = document.getElementById('salaryFilter')?.value || '';
             activeFilters.date = document.getElementById('dateFilter')?.value || '';
+
+            // Handle different location filter types
+            activeFilters.locationType = document.getElementById('locationTypeFilter')?.value || 'all';
+            activeFilters.location = document.getElementById('locationFilter')?.value || '';
+            activeFilters.state = document.getElementById('stateFilter')?.value || '';
+            activeFilters.zipcode = document.getElementById('zipcodeInput')?.value || '';
+            activeFilters.radius = document.getElementById('radiusSelect')?.value || '25';
 
             console.log('Applying filters:', activeFilters);
             console.log('Total jobs before filtering:', allJobs.length);
@@ -3270,6 +3440,21 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
             });
 
             console.log('Jobs after filtering:', filteredJobs.length);
+
+            // Log sample location data for analysis
+            if (filteredJobs.length > 0) {
+                console.log('Sample location formats:', filteredJobs.slice(0, 10).map(job => {
+                    let actualJob;
+                    if (currentView === 'filtered' && job.scraped_job) {
+                        actualJob = job.scraped_job;
+                    } else if (currentView === 'saved' && job.job_data) {
+                        actualJob = job.job_data;
+                    } else {
+                        actualJob = job;
+                    }
+                    return actualJob.location;
+                }));
+            }
 
             // Update the jobs array and re-render
             jobs = filteredJobs;
@@ -3333,7 +3518,8 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
         }
 
         function matchesLocationFilter(job) {
-            if (!activeFilters.location) return true;
+            // If no location filtering is applied, show all jobs
+            if (activeFilters.locationType === 'all') return true;
 
             // Handle different data structures for filtered vs saved jobs
             let actualJob;
@@ -3345,8 +3531,62 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                 actualJob = job;
             }
 
-            const location = (actualJob.location || '').trim();
-            return location === activeFilters.location;
+            const parsedLocation = parseLocation(actualJob.location);
+
+            switch(activeFilters.locationType) {
+                case 'exact':
+                    if (!activeFilters.location) return true;
+                    return parsedLocation.original === activeFilters.location;
+
+                case 'state':
+                    if (!activeFilters.state) return true;
+                    if (activeFilters.state === 'REMOTE') {
+                        return parsedLocation.isRemote;
+                    }
+                    return parsedLocation.state === activeFilters.state;
+
+                case 'distance':
+                    if (!activeFilters.zipcode) return true;
+                    // For now, implement basic distance filtering
+                    // This would ideally use a proper geocoding service
+                    return matchesDistanceFilter(parsedLocation, activeFilters.zipcode, activeFilters.radius);
+
+                default:
+                    return true;
+            }
+        }
+
+        function matchesDistanceFilter(parsedLocation, zipcode, radius) {
+            // Simplified distance filtering
+            // In a real implementation, you'd use geocoding APIs to get coordinates
+            // and calculate actual distances
+
+            // For now, let's implement a basic city/state matching
+            // If the job location contains the same state as the zipcode, consider it a match
+
+            // Basic zipcode to state mapping for major zipcodes
+            const zipcodeToState = {
+                '94': 'CA', '95': 'CA', '90': 'CA', '91': 'CA', '92': 'CA', '93': 'CA',
+                '10': 'NY', '11': 'NY', '12': 'NY', '13': 'NY', '14': 'NY',
+                '60': 'IL', '75': 'TX', '77': 'TX', '33': 'FL', '32': 'FL',
+                '20': 'DC', '22': 'VA', '30': 'GA', '80': 'CO', '85': 'AZ',
+                '98': 'WA', '97': 'OR', '02': 'MA', '19': 'PA'
+            };
+
+            const zipPrefix = zipcode.substring(0, 2);
+            const estimatedState = zipcodeToState[zipPrefix];
+
+            if (estimatedState && parsedLocation.state === estimatedState) {
+                return true;
+            }
+
+            // If remote work, always include in distance searches
+            if (parsedLocation.isRemote) {
+                return true;
+            }
+
+            // Default to false if we can't determine location match
+            return false;
         }
 
         function matchesSalaryFilter(job) {
