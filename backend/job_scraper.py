@@ -391,18 +391,10 @@ class JobScrapingService:
             # Search for salary patterns in the entire page text
             full_text = soup.get_text()
 
-            # Debug: Show any text containing "$" and "K" to help identify missed patterns
+            # Debug: Show salary patterns found (limit output)
             dollar_k_patterns = re.findall(r'[^\n]*\$[^\n]*k[^\n]*', full_text, re.IGNORECASE)
             if dollar_k_patterns:
-                print(f"🔍 Debug - Found {len(dollar_k_patterns)} lines with $...K patterns:")
-                for i, pattern in enumerate(dollar_k_patterns[:5]):  # Show first 5
-                    print(f"  {i+1}: {pattern.strip()}")
-                # Check specifically for decimal K patterns like $68.6K/yr - $151.1K/yr
-                decimal_k_patterns = re.findall(r'\$\d{1,3}\.\d+K[^\n]*', full_text, re.IGNORECASE)
-                if decimal_k_patterns:
-                    print(f"💡 Debug - Found {len(decimal_k_patterns)} decimal K patterns:")
-                    for i, pattern in enumerate(decimal_k_patterns[:3]):  # Show first 3
-                        print(f"  Decimal {i+1}: {pattern.strip()}")
+                print(f"🔍 Found {len(dollar_k_patterns)} salary patterns")
 
             # Prioritize range patterns over single values - search for ranges FIRST
             range_patterns = [
@@ -562,14 +554,14 @@ class JobScrapingService:
                 if job_url:
                     existing_min = job.get('min_amount')
                     existing_max = job.get('max_amount')
-                    print(f"🔍 Processing LinkedIn job: {job.get('title', '')[:50]}... (has_desc: {bool(job.get('description'))}, existing_salary: ${existing_min}-${existing_max})")
+                    # Process LinkedIn job (reduced logging)
                     job_data = self.fetch_linkedin_job_data(job_url)
 
                     # Update description if empty
                     if job_data['description'] and not job.get('description'):
                         job['description'] = job_data['description']
                         enriched_count += 1
-                        print(f"📝 Enriched LinkedIn job description: {job.get('title', '')[:50]}...")
+                        print(f"📝 Enriched: {job.get('title', '')[:30]}...")
 
                     # Update salary information if found (prioritize scraped data)
                     if job_data['min_salary'] or job_data['max_salary']:
@@ -581,7 +573,7 @@ class JobScrapingService:
                         # Only count as enriched if we actually added salary data
                         if (job_data['min_salary'] and not existing_min) or (job_data['max_salary'] and not existing_max):
                             salary_enriched_count += 1
-                            print(f"💰 Enriched LinkedIn job salary: {job.get('title', '')[:50]}... (${job_data['min_salary']}-${job_data['max_salary']})")
+                            print(f"💰 Salary: {job.get('title', '')[:30]}... (${job_data['min_salary']}-${job_data['max_salary']})")
 
                         # If we have min but no max, try to extract max from description
                         if job_data['min_salary'] and not job_data['max_salary'] and job.get('description'):
