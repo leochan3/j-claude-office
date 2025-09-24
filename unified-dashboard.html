@@ -1328,11 +1328,11 @@
                     endpoint = '/api/filtered-jobs';
                     // Add default filters similar to original filtered-jobs page
                     params.append('days_back', '7');
-                    params.append('limit', '100');
+                    params.append('limit', '10000');
                     params.append('offset', '0');
                 } else if (currentView === 'saved') {
                     endpoint = '/user/saved-jobs';
-                    params.append('limit', '100');
+                    params.append('limit', '10000');
                 }
 
                 const token = localStorage.getItem('auth_token');
