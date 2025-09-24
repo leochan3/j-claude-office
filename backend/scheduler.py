@@ -948,6 +948,8 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                 
                 # Write job data with relevance scores
                 jobs_with_scores = 0
+                ai_evaluations_done = 0
+                ai_evaluations_skipped = 0
                 for job_index, job in enumerate(jobs):
                     # Convert job to dict for scoring function
                     job_dict = {
@@ -987,21 +989,29 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                     else:
                         description_counts["without_description"] += 1
 
-                    # Get AI relevance evaluation
+                    # Get AI relevance evaluation (only for jobs with good relevance scores)
                     ai_relevance = "Not Evaluated"
-                    if self.openai_client:
+
+                    # Only do AI evaluation if job meets minimum relevance threshold
+                    min_relevance_for_ai = 60  # Same threshold used for filtering
+
+                    if relevance_score >= min_relevance_for_ai and self.openai_client:
                         try:
                             ai_relevance = self.evaluate_job_relevance_with_ai(
                                 job.title or '',
                                 job.description or ''
                             )
+                            ai_evaluations_done += 1
                             # Log AI evaluation for first few jobs
                             if job_index < 3:
                                 logger.info(f"🤖 AI evaluation for '{job.title}': {ai_relevance}")
                         except Exception as e:
                             logger.warning(f"AI evaluation failed for job {job_index+1}: {e}")
                             ai_relevance = "AI Error"
-                    else:
+                    elif relevance_score < min_relevance_for_ai:
+                        ai_relevance = "Low Relevance - Skipped"
+                        ai_evaluations_skipped += 1
+                    elif not self.openai_client:
                         if job_index == 0:  # Only log once
                             logger.warning("🤖 AI evaluation skipped - OpenAI client not configured")
                         ai_relevance = "AI Not Configured"
@@ -1046,6 +1056,8 @@ Rate as exactly one of: Highly Relevant, Somewhat Relevant, Somewhat Irrelevant,
                     logger.info(f"📄 Created CSV export: {csv_filename} with {len(jobs)} jobs, multi-keyword relevance scores, {ai_status}")
                     logger.info(f"📊 Scoring keywords used: {', '.join(scoring_keywords)}")
                     logger.info(f"📊 Jobs with scores > 0: {jobs_with_scores} out of {len(jobs)}")
+                    if self.openai_client:
+                        logger.info(f"🤖 AI evaluations: {ai_evaluations_done} done, {ai_evaluations_skipped} skipped (optimization)")
                 else:
                     logger.info(f"📄 Created CSV export: {csv_filename} with {len(jobs)} jobs (no keyword scoring applied), {ai_status}")
 

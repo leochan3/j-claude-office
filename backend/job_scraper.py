@@ -606,6 +606,57 @@ class JobScrapingService:
 
         return enriched_jobs
 
+    def apply_early_filtering(self, jobs_data: List[Dict[str, Any]], search_terms: List[str]) -> List[Dict[str, Any]]:
+        """
+        Apply relevance score filtering and title exclusions before expensive operations.
+        This reduces the number of jobs that need LinkedIn enrichment and AI evaluation.
+        """
+        if not jobs_data or not search_terms:
+            return jobs_data
+
+        # Import here to avoid circular imports
+        from scheduler import AutoScrapingScheduler
+
+        # Create temporary scheduler instance for scoring
+        temp_scheduler = AutoScrapingScheduler()
+
+        filtered_jobs = []
+        excluded_titles = ["president", "director", "VP", "chief", "ceo", "cto", "cfo"]
+        min_relevance_score = 60  # Same threshold used in later filtering
+
+        for job in jobs_data:
+            # Check title exclusions first (fastest filter)
+            title = (job.get('title') or '').lower()
+            if any(excluded_title.lower() in title for excluded_title in excluded_titles):
+                continue
+
+            # Calculate relevance score
+            job_dict = {
+                'title': job.get('title'),
+                'description': job.get('description'),
+                'company': job.get('company'),
+                'job_type': job.get('job_type'),
+                'min_amount': job.get('min_amount'),
+                'max_amount': job.get('max_amount'),
+                'date_posted': job.get('date_posted')
+            }
+
+            # Use multi-keyword scoring
+            scoring_result = temp_scheduler.calculate_multi_keyword_score(
+                job_dict,
+                search_terms,
+                expected_salary=None
+            )
+
+            # Only keep jobs that meet minimum relevance threshold
+            if scoring_result['score'] >= min_relevance_score:
+                # Store the score for later use
+                job['_early_filter_score'] = scoring_result['score']
+                job['_early_filter_best_keyword'] = scoring_result['best_keyword']
+                filtered_jobs.append(job)
+
+        return filtered_jobs
+
     async def scrape_company_jobs(
         self,
         company_name: str,
@@ -736,7 +787,13 @@ class JobScrapingService:
         
         final_jobs = list(unique_jobs.values())
 
-        # Enrich LinkedIn jobs with descriptions
+        # Apply early filtering to reduce LinkedIn enrichment workload
+        if search_terms:
+            print(f"🔍 Applying early relevance filtering to {len(final_jobs)} jobs...")
+            final_jobs = self.apply_early_filtering(final_jobs, search_terms)
+            print(f"🎯 After early filtering: {len(final_jobs)} jobs remain")
+
+        # Enrich LinkedIn jobs with descriptions (now on filtered set only)
         linkedin_jobs = [job for job in final_jobs if job.get('site') == 'linkedin']
         print(f"🔗 Enriching LinkedIn jobs with descriptions... ({len(linkedin_jobs)} LinkedIn jobs found)")
         final_jobs = self.enrich_linkedin_jobs(final_jobs)
